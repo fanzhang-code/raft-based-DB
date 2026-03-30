@@ -1,0 +1,9 @@
+{
+  "nodeId": "node1",
+  "host": "localhost",
+  "port": 50051,
+  "peers": [
+    {"nodeId": "node2", "host": "localhost", "port": 50052},
+    {"nodeId": "node3", "host": "localhost", "port": 50053}
+  ]
+}
