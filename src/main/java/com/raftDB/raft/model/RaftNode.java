@@ -3,6 +3,8 @@ package com.raftDB.raft.model;
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
 import com.raftDB.raft.rpc.RaftServiceGrpc;
+import com.raftDB.raft.rpc.RequestVoteRequest;
+import com.raftDB.raft.rpc.RequestVoteResponse;
 import io.grpc.ServerBuilder;
 
 import io.grpc.ManagedChannel;
@@ -60,6 +62,63 @@ public class RaftNode {
 
             System.out.println("Connected stub to peer: " + peer.getNodeId()
                     + " at " + peer.getHost() + ":" + peer.getPort());
+        }
+    }
+
+    //Add manual election method
+    public void startElection() {
+        synchronized (state.getLock()) {
+            state.setRole(com.raftDB.raft.model.NodeRole.CANDIDATE);
+            state.setCurrentTerm(state.getCurrentTerm() + 1);
+            state.setVotedFor(config.getNodeId());
+        }
+
+        int currentTerm = state.getCurrentTerm();
+        int votes = 1; // vote for self
+
+        System.out.println(config.getNodeId() + " started election for term " + currentTerm);
+
+        for (Map.Entry<String, RaftServiceGrpc.RaftServiceBlockingStub> entry : peerStubs.entrySet()) {
+            String peerId = entry.getKey();
+            RaftServiceGrpc.RaftServiceBlockingStub stub = entry.getValue();
+
+            RequestVoteRequest request = RequestVoteRequest.newBuilder()
+                    .setTerm(currentTerm)
+                    .setCandidateId(config.getNodeId())
+                    .setLastLogIndex(0)
+                    .setLastLogTerm(0)
+                    .build();
+
+            try {
+                RequestVoteResponse response = stub.requestVote(request);
+                System.out.println("Vote reply from " + peerId + ": granted=" + response.getVoteGranted()
+                        + ", term=" + response.getTerm());
+
+                if (response.getVoteGranted()) {
+                    votes++;
+                } else if (response.getTerm() > currentTerm) {
+                    synchronized (state.getLock()) {
+                        state.setCurrentTerm(response.getTerm());
+                        state.setRole(com.raftDB.raft.model.NodeRole.FOLLOWER);
+                        state.setVotedFor(null);
+                    }
+                    return;
+                }
+            } catch (Exception e) {
+                System.out.println("Failed to request vote from " + peerId + ": " + e.getMessage());
+            }
+        }
+
+        int totalNodes = config.getPeers().size() + 1;
+        int majority = (totalNodes / 2) + 1;
+
+        synchronized (state.getLock()) {
+            if (state.getRole() == com.raftDB.raft.model.NodeRole.CANDIDATE && votes >= majority) {
+                state.setRole(com.raftDB.raft.model.NodeRole.LEADER);
+                System.out.println(config.getNodeId() + " became LEADER for term " + state.getCurrentTerm());
+            } else {
+                System.out.println(config.getNodeId() + " failed to become leader. Votes=" + votes);
+            }
         }
     }
 

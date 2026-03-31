@@ -16,6 +16,10 @@ public class Main {
 
         RaftNode node = new RaftNode(config);
         node.start();
+        if ("node1".equals(config.getNodeId())) {
+            Thread.sleep(3000);
+            node.startElection();
+        }
         node.blockUntilShutdown();
     }
 
