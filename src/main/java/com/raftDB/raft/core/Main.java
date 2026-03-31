@@ -6,6 +6,7 @@ import com.raftDB.raft.model.RaftNode;
 
 public class Main {
 
+    //To start the node N - run with arg: nodeN.json
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             throw new RuntimeException("Please provide config file name");

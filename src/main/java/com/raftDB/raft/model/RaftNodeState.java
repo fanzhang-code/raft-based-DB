@@ -18,16 +18,18 @@ public class RaftNodeState {
     private final String nodeId;
 
     private final Object lock = new Object();
-    private volatile NodeRole role = NodeRole.FOLLOWER;
+    private volatile NodeRole role = NodeRole.FOLLOWER;  //node starts as follower
+
+    //logical clock for ordering events
     private volatile int currentTerm = 0;
+
     private volatile String votedFor = null;
 
     private final List<LogEntry> log = new ArrayList<>();
 
+    // TODO Use these later for log replication
     private volatile int commitIndex = 0;
     private volatile int lastApplied = 0;
-
-    // Person 2 will use these later
     private final ConcurrentMap<String, Integer> nextIndex = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Integer> matchIndex = new ConcurrentHashMap<>();
 

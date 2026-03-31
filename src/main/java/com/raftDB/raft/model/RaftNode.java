@@ -33,6 +33,7 @@ public class RaftNode {
 
     public void start() throws IOException {
         startServer();
+        //Set up connections with peers
         createPeerStubs();
 
         startElectionTimer();
@@ -71,7 +72,7 @@ public class RaftNode {
 
     private void startElectionTimer() {
         new Thread(() -> {
-            while (true) {
+            while (true) { //keep checking heartbeat to see if leader is still alive
                 try {
                     Thread.sleep(50);
 
@@ -79,6 +80,7 @@ public class RaftNode {
                     long now = System.currentTimeMillis();
 
                     synchronized (state.getLock()) {
+                        //if a node hasn't received heartbeat from leader for a while, consider re-election
                         if (state.getRole() != NodeRole.LEADER
                                 && now - lastHeartbeatTime > electionTimeoutMs) {
                             shouldStartElection = true;
@@ -98,20 +100,21 @@ public class RaftNode {
         }).start();
     }
 
-    //Add manual election method
     public void startElection() {
         int currentTerm;
 
+        //increase CurrentTerm and vote for itself
         synchronized (state.getLock()) {
             state.setRole(NodeRole.CANDIDATE);
             state.setCurrentTerm(state.getCurrentTerm() + 1);
             state.setVotedFor(config.getNodeId());
             currentTerm = state.getCurrentTerm();
         }
-        int votes = 1; // vote for self
+        int votes = 1; // count the vote for self
 
         System.out.println(config.getNodeId() + " started election for term " + currentTerm);
 
+        //send vote requests to peers (with )
         for (Map.Entry<String, RaftServiceGrpc.RaftServiceBlockingStub> entry : peerStubs.entrySet()) {
             String peerId = entry.getKey();
             RaftServiceGrpc.RaftServiceBlockingStub stub = entry.getValue();
@@ -119,7 +122,7 @@ public class RaftNode {
             RequestVoteRequest request = RequestVoteRequest.newBuilder()
                     .setTerm(currentTerm)
                     .setCandidateId(config.getNodeId())
-                    .setLastLogIndex(0)
+                    .setLastLogIndex(0)//TODO log replication
                     .setLastLogTerm(0)
                     .build();
 
@@ -129,8 +132,8 @@ public class RaftNode {
                         + ", term=" + response.getTerm());
 
                 if (response.getVoteGranted()) {
-                    votes++;
-                } else if (response.getTerm() > currentTerm) {
+                    votes++; //other node votes for it
+                } else if (response.getTerm() > currentTerm) {  // candidate term is not new enough
                     synchronized (state.getLock()) {
                         state.setCurrentTerm(response.getTerm());
                         state.setRole(com.raftDB.raft.model.NodeRole.FOLLOWER);
@@ -147,6 +150,7 @@ public class RaftNode {
         int majority = (totalNodes / 2) + 1;
 
         synchronized (state.getLock()) {
+            //if get majority vote
             if (state.getRole() == com.raftDB.raft.model.NodeRole.CANDIDATE && votes >= majority) {
                 state.setRole(com.raftDB.raft.model.NodeRole.LEADER);
                 System.out.println(config.getNodeId() + " became LEADER for term " + state.getCurrentTerm());
@@ -169,7 +173,7 @@ public class RaftNode {
                         }
                         currentTerm = state.getCurrentTerm();
                     }
-
+                    //Leader periodically sends empty AppendEntries RPCs (heartbeats)
                     for (Map.Entry<String, RaftServiceGrpc.RaftServiceBlockingStub> entry : peerStubs.entrySet()) {
                         String peerId = entry.getKey();
                         RaftServiceGrpc.RaftServiceBlockingStub stub = entry.getValue();
@@ -185,6 +189,7 @@ public class RaftNode {
                         try {
                             AppendEntriesResponse response = stub.appendEntries(request);
 
+                            //my term is old, change from leader to follower
                             if (response.getTerm() > currentTerm) {
                                 synchronized (state.getLock()) {
                                     state.setCurrentTerm(response.getTerm());
