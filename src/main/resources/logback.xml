@@ -1,0 +1,20 @@
+<configuration>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 🔥 Suppress gRPC + Netty DEBUG logs -->
+    <logger name="io.grpc" level="WARN"/>
+    <logger name="io.grpc.netty" level="WARN"/>
+    <logger name="io.grpc.netty.shaded.io.grpc.netty" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+
+    <!-- Your app logs -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+</configuration>

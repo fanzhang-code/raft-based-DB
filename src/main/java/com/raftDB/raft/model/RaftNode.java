@@ -20,7 +20,7 @@ public class RaftNode {
 
     private Server server;
 
-    private final Map<String, ManagedChannel> peerChannels = new HashMap<>();
+    //private final Map<String, ManagedChannel> peerChannels = new HashMap<>();
     private final Map<String, RaftServiceGrpc.RaftServiceBlockingStub> peerStubs = new HashMap<>();
 
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
@@ -62,7 +62,7 @@ public class RaftNode {
             RaftServiceGrpc.RaftServiceBlockingStub stub =
                     RaftServiceGrpc.newBlockingStub(channel);
 
-            peerChannels.put(peer.getNodeId(), channel);
+            //peerChannels.put(peer.getNodeId(), channel);
             peerStubs.put(peer.getNodeId(), stub);
 
             System.out.println("Connected stub to peer: " + peer.getNodeId()
