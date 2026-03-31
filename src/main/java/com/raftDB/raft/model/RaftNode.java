@@ -2,9 +2,7 @@ package com.raftDB.raft.model;
 
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
-import com.raftDB.raft.rpc.RaftServiceGrpc;
-import com.raftDB.raft.rpc.RequestVoteRequest;
-import com.raftDB.raft.rpc.RequestVoteResponse;
+import com.raftDB.raft.rpc.*;
 import io.grpc.ServerBuilder;
 
 import io.grpc.ManagedChannel;
@@ -25,6 +23,9 @@ public class RaftNode {
     private final Map<String, ManagedChannel> peerChannels = new HashMap<>();
     private final Map<String, RaftServiceGrpc.RaftServiceBlockingStub> peerStubs = new HashMap<>();
 
+    private volatile long lastHeartbeatTime = System.currentTimeMillis();
+    private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
+
     public RaftNode(NodeConfig config) {
         this.config = config;
         this.state = new RaftNodeState(config.getNodeId());
@@ -33,6 +34,9 @@ public class RaftNode {
     public void start() throws IOException {
         startServer();
         createPeerStubs();
+
+        startElectionTimer();
+        startHeartbeatLoop();
 
         System.out.println("Raft node started: " + config.getNodeId());
         System.out.println("Listening on port: " + config.getPort());
@@ -65,15 +69,45 @@ public class RaftNode {
         }
     }
 
+    private void startElectionTimer() {
+        new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(50);
+
+                    boolean shouldStartElection = false;
+                    long now = System.currentTimeMillis();
+
+                    synchronized (state.getLock()) {
+                        if (state.getRole() != NodeRole.LEADER
+                                && now - lastHeartbeatTime > electionTimeoutMs) {
+                            shouldStartElection = true;
+                            lastHeartbeatTime = now;
+                        }
+                    }
+
+                    if (shouldStartElection) {
+                        System.out.println(config.getNodeId() + " election timeout -> start election");
+                        startElection();
+                    }
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
     //Add manual election method
     public void startElection() {
+        int currentTerm;
+
         synchronized (state.getLock()) {
-            state.setRole(com.raftDB.raft.model.NodeRole.CANDIDATE);
+            state.setRole(NodeRole.CANDIDATE);
             state.setCurrentTerm(state.getCurrentTerm() + 1);
             state.setVotedFor(config.getNodeId());
+            currentTerm = state.getCurrentTerm();
         }
-
-        int currentTerm = state.getCurrentTerm();
         int votes = 1; // vote for self
 
         System.out.println(config.getNodeId() + " started election for term " + currentTerm);
@@ -120,6 +154,59 @@ public class RaftNode {
                 System.out.println(config.getNodeId() + " failed to become leader. Votes=" + votes);
             }
         }
+    }
+
+    private void startHeartbeatLoop() {
+        new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(80);
+
+                    int currentTerm;
+                    synchronized (state.getLock()) {
+                        if (state.getRole() != NodeRole.LEADER) {
+                            continue;
+                        }
+                        currentTerm = state.getCurrentTerm();
+                    }
+
+                    for (Map.Entry<String, RaftServiceGrpc.RaftServiceBlockingStub> entry : peerStubs.entrySet()) {
+                        String peerId = entry.getKey();
+                        RaftServiceGrpc.RaftServiceBlockingStub stub = entry.getValue();
+
+                        AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
+                                .setTerm(currentTerm)
+                                .setLeaderId(config.getNodeId())
+                                .setPrevLogIndex(0)
+                                .setPrevLogTerm(0)
+                                .setLeaderCommit(0)
+                                .build();
+
+                        try {
+                            AppendEntriesResponse response = stub.appendEntries(request);
+
+                            if (response.getTerm() > currentTerm) {
+                                synchronized (state.getLock()) {
+                                    state.setCurrentTerm(response.getTerm());
+                                    state.setRole(NodeRole.FOLLOWER);
+                                    state.setVotedFor(null);
+                                }
+                                System.out.println(config.getNodeId() + " stepped down after higher term from " + peerId);
+                                break;
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Failed heartbeat to " + peerId + ": " + e.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
+    public void resetHeartbeatTimer() {
+        lastHeartbeatTime = System.currentTimeMillis();
     }
 
     public NodeConfig getConfig() {

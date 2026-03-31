@@ -67,6 +67,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 }
                 state.setRole(com.raftDB.raft.model.NodeRole.FOLLOWER);
                 success = true;
+                raftNode.resetHeartbeatTimer();
             }
 
             currentTerm = state.getCurrentTerm();
