@@ -116,6 +116,35 @@
                 </executions>
             </plugin>
 
+            <!-- Tells VSCode to recognize generated folders. Prevents loads of errors from popping up on the main files -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/protobuf/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Remove files generated at build-time -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.3.2</version>
+                <configuration>
+                    <retryOnError>true</retryOnError>
+                </configuration>
+            </plugin>
+
             <!-- Test runner -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -24,6 +24,10 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
         //A node grants vote if: 1. candidate’s term is at least as new 2. it hasn’t voted yet (or voted for same candidate)
         synchronized (state.getLock()) {
+            // System.out.println("Current Candidate Node: " + request.getCandidateId());
+            // System.out.println("Current Request Term: " + request.getTerm());
+            // System.out.println("Current State Term: " + state.getCurrentTerm());
+            // System.out.println("----------");
             if (request.getTerm() < state.getCurrentTerm()) {
                 voteGranted = false;
             } else {
@@ -34,7 +38,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                     state.setVotedFor(null);
                 }
 
-                if (state.getVotedFor() == null || state.getVotedFor().equals(request.getCandidateId())) {
+                if ((state.getVotedFor() == null || state.getVotedFor().equals(request.getCandidateId())) && raftNode.isLogUpToDate(request.getLastLogIndex(), request.getLastLogTerm())) {
                     //grant vote and record voteFor
                     state.setVotedFor(request.getCandidateId());
                     voteGranted = true;
@@ -54,7 +58,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
     }
 
     @Override
-    //TODO add log replication logic later
+    //TODO add KV-database and local storage connection.
     public void appendEntries(AppendEntriesRequest request,
                               StreamObserver<AppendEntriesResponse> responseObserver) {
 
@@ -73,9 +77,19 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 //Successfully received heartbeat from leader
                 state.setRole(com.raftDB.raft.model.NodeRole.FOLLOWER);
                 success = true;
+                //Also reset the vote, so we can vote in the new term. Set to null.
                 raftNode.resetHeartbeatTimer(); //reset heartbeat
-            }
 
+                //TODO: We will need to store logs in local storage.
+                if(raftNode.checkLogConsistency(request.getPrevLogIndex(), request.getPrevLogTerm())){ 
+                    raftNode.processLogEntries(request.getEntriesList(), request.getLeaderCommit());
+                    success = true;
+                } else {
+                    success = false;
+                }
+
+            }
+            
             currentTerm = state.getCurrentTerm();
         }
 

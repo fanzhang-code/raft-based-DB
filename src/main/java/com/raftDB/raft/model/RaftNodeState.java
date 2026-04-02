@@ -3,8 +3,13 @@ package com.raftDB.raft.model;
 //main shared state object
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import com.raftDB.raft.rpc.LogEntry;
 
 /**
 placeholders for log replication phase:
@@ -32,6 +37,10 @@ public class RaftNodeState {
     private volatile int lastApplied = 0;
     private final ConcurrentMap<String, Integer> nextIndex = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Integer> matchIndex = new ConcurrentHashMap<>();
+    // private final ConcurrentMap<String, AtomicInteger> nextIndex = new ConcurrentHashMap<>();
+    // private final ConcurrentMap<String, AtomicInteger> matchIndex = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> stateMachineData = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, CompletableFuture<Boolean>> pendingCommits = new ConcurrentHashMap<>();
 
     public RaftNodeState(String nodeId) {
         this.nodeId = nodeId;
@@ -73,6 +82,26 @@ public class RaftNodeState {
         return log;
     }
 
+    public int getLastLogTerm(int lastLogIndex){
+        if (lastLogIndex <= 0 || log.isEmpty()){
+            return 0;
+        }
+
+        if(lastLogIndex >= log.size()){
+            return -1;
+        }
+
+        return this.getLog().get(lastLogIndex).getTerm();
+    }
+
+    public int getTermAt(int index){
+        if (index < 0){
+            return 0;
+        }
+
+        return this.getLog().get(index).getTerm();
+    }
+
     public int getCommitIndex() {
         return commitIndex;
     }
@@ -90,10 +119,20 @@ public class RaftNodeState {
     }
 
     public ConcurrentMap<String, Integer> getNextIndex() {
+    // public ConcurrentMap<String, AtomicInteger> getNextIndex() {
         return nextIndex;
     }
 
     public ConcurrentMap<String, Integer> getMatchIndex() {
+    // public ConcurrentMap<String, AtomicInteger> getMatchIndex() {
         return matchIndex;
     }
+
+    public ConcurrentMap<String, String> getStateMachineData() {
+        return stateMachineData;
+    }
+
+    public ConcurrentMap<Integer, CompletableFuture<Boolean>> getPendingCommits() {
+        return pendingCommits;
+    }    
 }
