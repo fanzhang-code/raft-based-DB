@@ -113,16 +113,18 @@ public class RaftNode {
     * and the index of the highest log entry known to be replicated on the server.
     */
     public void intializeLeaderState(){
-        int lastIndex = state.getLog().size() - 1;
+        synchronized(state.getLock()){
+            int lastIndex = state.getLog().size() - 1;
 
-        // System.out.println("-------");
-        // System.out.println("Initalize Leader state. Last Log Index is :" + lastIndex);
-        // System.out.println("-------");
+            // System.out.println("-------");
+            // System.out.println("Initalize Leader state. Last Log Index is :" + lastIndex);
+            // System.out.println("-------");
 
-        for (PeerInfo peer : config.getPeers()){
-            String peerId = peer.getNodeId();
-            state.getNextIndex().put(peerId, lastIndex + 1);
-            state.getMatchIndex().put(peerId, 0);
+            for (PeerInfo peer : config.getPeers()){
+                String peerId = peer.getNodeId();
+                state.getNextIndex().put(peerId, lastIndex + 1);
+                state.getMatchIndex().put(peerId, 0);
+            }
         }
     }
 
@@ -323,7 +325,6 @@ public class RaftNode {
     * Otherwise, return false.
     */
     public boolean isLogUpToDate(int lastLogIndex, int lastLogTerm){
-
         synchronized(state.getLock()){
             int myLastLogIndex = state.getLog().size() - 1;
             int myLastLogTerm = state.getTermAt(myLastLogIndex);
@@ -368,7 +369,6 @@ public class RaftNode {
     * @param - leaderCommit - Commit index of leader node.
     */
     public void processLogEntries(List<LogEntry> newEntries, int leaderCommit){
-
         synchronized(state.getLock()){
             List<LogEntry> log = state.getLog();
             if(!newEntries.isEmpty()){
@@ -464,46 +464,48 @@ public class RaftNode {
     * and the terms of the majority and the node match, update the commit index to match the majority.
     * And apply the logs to the state machine and remove any pending commits.
     */
-    private synchronized void updateCommitIndex() {
-        List<Integer> indices = new ArrayList<>();
-        indices.add(state.getLog().size() - 1); 
+    public void updateCommitIndex() {
+        synchronized(state.getLock()){
+            List<Integer> indices = new ArrayList<>();
+            indices.add(state.getLog().size() - 1); 
 
-        for (PeerInfo peer : config.getPeers()){
-            String peerId = peer.getNodeId();
-            indices.add(state.getMatchIndex().getOrDefault(peerId, -1));
-        }
-        
-        Collections.sort(indices);
-        
-        int n = indices.size();
-        int majorityIndex = indices.get(n - (n / 2 + 1));
+            for (PeerInfo peer : config.getPeers()){
+                String peerId = peer.getNodeId();
+                indices.add(state.getMatchIndex().getOrDefault(peerId, -1));
+            }
+            
+            Collections.sort(indices);
+            
+            int n = indices.size();
+            int majorityIndex = indices.get(n - (n / 2 + 1));
 
-        if (majorityIndex < 0 || majorityIndex >= state.getLog().size()) {
-                return; 
-        }
+            if (majorityIndex < 0 || majorityIndex >= state.getLog().size()) {
+                    return; 
+            }
 
-        int previousCommitIndex = state.getCommitIndex();
+            int previousCommitIndex = state.getCommitIndex();
 
-        if (majorityIndex > previousCommitIndex && state.getLog().get(majorityIndex).getTerm() == state.getCurrentTerm()) {
-                System.out.println("------");
-                System.out.println("Current MatchIndices: " + state.getMatchIndex());
-                System.out.println("Calculated MajorityIndex: " + majorityIndex);
-                System.out.println("Log Term at MajorityIndex: " + state.getLog().get(majorityIndex).getTerm());
-                System.out.println("------");
-                System.out.println(String.format("Majority votes obtained! Committing up to index %s", majorityIndex));
-                System.out.println("------");
-                
-                state.setCommitIndex(majorityIndex);
+            if (majorityIndex > previousCommitIndex && state.getLog().get(majorityIndex).getTerm() == state.getCurrentTerm()) {
+                    System.out.println("------");
+                    System.out.println("Current MatchIndices: " + state.getMatchIndex());
+                    System.out.println("Calculated MajorityIndex: " + majorityIndex);
+                    System.out.println("Log Term at MajorityIndex: " + state.getLog().get(majorityIndex).getTerm());
+                    System.out.println("------");
+                    System.out.println(String.format("Majority votes obtained! Committing up to index %s", majorityIndex));
+                    System.out.println("------");
+                    
+                    state.setCommitIndex(majorityIndex);
 
-                applyToStateMachine(); 
+                    applyToStateMachine(); 
 
-                for (int i = previousCommitIndex + 1; i <= majorityIndex; i++) {
-                    CompletableFuture<Boolean> future = state.getPendingCommits().remove(i);
-                    if (future != null) {
-                        future.complete(true);
+                    for (int i = previousCommitIndex + 1; i <= majorityIndex; i++) {
+                        CompletableFuture<Boolean> future = state.getPendingCommits().remove(i);
+                        if (future != null) {
+                            future.complete(true);
+                        }
                     }
                 }
-            }
+        }
     }    
 
     /*
@@ -511,44 +513,45 @@ public class RaftNode {
     * @param - command - The client's command sent to the node leader.
     * @param - responseObserver - Response handler to receive and send streaming messages from the client.
     */
-    public synchronized void simulateResponseClientRequest(String command, StreamObserver<ClientResponse> responseObserver) {
-            System.out.println("Current Role for " + state.getNodeId() + " is " + state.getRole());
-            if (state.getRole() != NodeRole.LEADER) { //Only leader gets to respond to the client.
-                responseObserver.onNext(ClientResponse.newBuilder()
-                        .setSuccess(false)
-                        .setMessage("Node " + state.getNodeId() + " is not the leader.")
-                        .build());
-                responseObserver.onCompleted();
-                return;
-            }
-
-            //Create a new log entry of the client's command.
-            int entryIndex = state.getLog().size();
-            LogEntry entry = LogEntry.newBuilder()
-                    .setTerm(state.getCurrentTerm())
-                    .setIndex(entryIndex)
-                    .setCommand(command)
-                    .build();
-            
-            state.getLog().add(entry);
-            System.out.println(String.format("Leader received command: %s. Log size now %s", command, entryIndex));
-
-            //Invokes heartbeat to perform log replication of the new log entry.
-            waitForCommit(entryIndex).thenAccept(committed -> {
-                if (committed) {
-                    responseObserver.onNext(ClientResponse.newBuilder()
-                            .setSuccess(true)
-                            .setMessage("Command committed at index " + entryIndex)
-                            .build());
-                } else {
+    public void simulateResponseClientRequest(String command, StreamObserver<ClientResponse> responseObserver) {
+            synchronized(state.getLock()){
+                System.out.println("Current Role for " + state.getNodeId() + " is " + state.getRole());
+                if (state.getRole() != NodeRole.LEADER) { //Only leader gets to respond to the client.
                     responseObserver.onNext(ClientResponse.newBuilder()
                             .setSuccess(false)
-                            .setMessage("Timed out waiting for consensus")
+                            .setMessage("Node " + state.getNodeId() + " is not the leader.")
                             .build());
+                    responseObserver.onCompleted();
+                    return;
                 }
-                responseObserver.onCompleted();
-            });
 
+                //Create a new log entry of the client's command.
+                int entryIndex = state.getLog().size();
+                LogEntry entry = LogEntry.newBuilder()
+                        .setTerm(state.getCurrentTerm())
+                        .setIndex(entryIndex)
+                        .setCommand(command)
+                        .build();
+                
+                state.getLog().add(entry);
+                System.out.println(String.format("Leader received command: %s. Log size now %s", command, entryIndex));
+
+                //Invokes heartbeat to perform log replication of the new log entry.
+                waitForCommit(entryIndex).thenAccept(committed -> {
+                    if (committed) {
+                        responseObserver.onNext(ClientResponse.newBuilder()
+                                .setSuccess(true)
+                                .setMessage("Command committed at index " + entryIndex)
+                                .build());
+                    } else {
+                        responseObserver.onNext(ClientResponse.newBuilder()
+                                .setSuccess(false)
+                                .setMessage("Timed out waiting for consensus")
+                                .build());
+                    }
+                    responseObserver.onCompleted();
+                });
+            }
         }        
 
     /*
