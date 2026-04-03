@@ -11,7 +11,6 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
 
 import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -108,12 +107,17 @@ public class RaftNode {
         }).start();
     }
 
+    /*
+    * Initalize the Leader's state after leader election.
+    * Sets the next log entry to send to server to the leader's last log index + 1
+    * and the index of the highest log entry known to be replicated on the server.
+    */
     public void intializeLeaderState(){
         int lastIndex = state.getLog().size() - 1;
 
-        System.out.println("-------");
-        System.out.println("Initalize Leader state. Last Log Index is :" + lastIndex);
-        System.out.println("-------");
+        // System.out.println("-------");
+        // System.out.println("Initalize Leader state. Last Log Index is :" + lastIndex);
+        // System.out.println("-------");
 
         for (PeerInfo peer : config.getPeers()){
             String peerId = peer.getNodeId();
@@ -146,13 +150,17 @@ public class RaftNode {
             RequestVoteRequest request = RequestVoteRequest.newBuilder()
                     .setTerm(currentTerm)
                     .setCandidateId(config.getNodeId())
-                    .setLastLogIndex(lastLogIndex) //get last log index log.size() - 1 (use getter)
-                    .setLastLogTerm(state.getLastLogTerm(lastLogIndex)) //Get the last log term
+                    .setLastLogIndex(lastLogIndex) 
+                    .setLastLogTerm(state.getLastLogTerm(lastLogIndex))
                     .build();
 
             try {
                 System.out.println("Sending RequestVote to " + peerId + "...");
-                RequestVoteResponse response = stub.requestVote(request);
+                // RequestVoteResponse response = stub.requestVote(request);
+
+                //If node doesn't respond back to the request within 100ms, then return a Deadline Exceeded exception.
+                //This is to ensure the follower nodes don't reach a deadlock when trying to request votes onto each when the inital leader node goes down.
+                RequestVoteResponse response = stub.withDeadlineAfter(100, TimeUnit.MILLISECONDS).requestVote(request); 
                 System.out.println("Received response from " + peerId);
 
                 System.out.println("Vote reply from " + peerId + ": granted=" + response.getVoteGranted()
@@ -168,13 +176,19 @@ public class RaftNode {
                     }
                     return;
                 }
+            } catch (StatusRuntimeException e){
+                if(e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED){
+                    System.err.println("Deadline Exceeded: Vote Request timed out for " + peerId);
+                }
             } catch (Exception e) {
-                System.out.println("Failed to request vote from " + peerId + ": " + e.getMessage());
+                System.out.println("Failed to request vote from " + peerId + "with reason given: " + e.getMessage());
             }
         }
 
         int totalNodes = config.getPeers().size() + 1;
         int majority = (totalNodes / 2) + 1;
+
+        // System.out.println("Majority Needed: " + majority + "/" + totalNodes);
 
         synchronized (state.getLock()) {
             //if get majority vote
@@ -182,7 +196,7 @@ public class RaftNode {
                 state.setRole(com.raftDB.raft.model.NodeRole.LEADER);
 
                 System.out.println("-------");
-                System.out.println("Reinitalizing the nextIndex and matchIndex maps as leader was elected!");
+                System.out.println("Initalizing the nextIndex and matchIndex maps as leader was elected!");
                 System.out.println("-------");
 
                 intializeLeaderState();
@@ -243,7 +257,10 @@ public class RaftNode {
                                 .build();
 
                         try {
-                            AppendEntriesResponse response = stub.appendEntries(request);
+                            // AppendEntriesResponse response = stub.appendEntries(request);
+
+                            //If node doesn't respond back to the heartbeat within 50ms, then return a Deadline Exceeded exception.                         
+                            AppendEntriesResponse response = stub.withDeadlineAfter(50, TimeUnit.MILLISECONDS).appendEntries(request);
                             
                             //my term is old, change from leader to follower
                             if (response.getTerm() > currentTerm) {
@@ -260,14 +277,15 @@ public class RaftNode {
                             }
 
                             synchronized(state.getLock()){
-                                // If successful response, update next, match, and commit indexes.
+                                // If successful response, update the nextIndex, matchIndex, commitIndex for the follower.
+                                // Provided that the lastAppendedIndex is greater than the follower node's matchIndex.
                                 if(response.getSuccess()){
                                     int lastAppendedIndex = request.getPrevLogIndex() + request.getEntriesCount();
 
                                     if(lastAppendedIndex > state.getMatchIndex().getOrDefault(peerId, -1)) {
-                                        // System.out.println("------");
-                                        // System.out.println("Peer " + peerId + " successfully appended up to " + lastAppendedIndex);
-                                        // System.out.println("------");
+                                        System.out.println("------");
+                                        System.out.println("Peer " + peerId + " successfully appended up to " + lastAppendedIndex);
+                                        System.out.println("------");
                                         state.getNextIndex().put(peerId, lastAppendedIndex + 1);
                                         state.getMatchIndex().put(peerId, lastAppendedIndex);
 
@@ -275,14 +293,18 @@ public class RaftNode {
                                     }
 
                                 } else {
-                                    // Otherwise, loop back to follower's log history.
+                                    // Otherwise, if there's a log inconsistency, then keep looping back to follower's log history until successful.
                                     int newNextIdx = Math.max(0, nextIdx - 1);
                                     state.getNextIndex().put(peerId, newNextIdx);
                                     System.out.println("Log mismatch for " + peerId + ". Retrying with next log entry index: " + newNextIdx);
                                 }
                             }
+                        } catch (StatusRuntimeException e){
+                            if(e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED){
+                                System.err.println("Deadline Exceeded: Heartbeat timed out for " + peerId);
+                            }
                         } catch (Exception e) {
-                            System.out.println("Failed heartbeat to " + peerId + ": " + e.getMessage());
+                            System.out.println("Failed heartbeat to " + peerId + "with reason given: " + e.getMessage());
                         }
                     }
                 } catch (Exception e) {
@@ -293,9 +315,12 @@ public class RaftNode {
     }
 
     /*
-    * Helper function to determine if a node's log is update to date.
-    * 
-    * 
+    * Determines if the candidate node's log is up to date.
+    * @param - lastLogIndex - candidate node's last log index.
+    * @param - lastLogTerm - candidate node's last log term.
+    * @return true if the candidate node's last log index is greater or equal to the voter node's last log index
+    * Or if the candidate node's last log term is greater than the voter node's last log term, provided the terms between the two nodes are not equal.
+    * Otherwise, return false.
     */
     public boolean isLogUpToDate(int lastLogIndex, int lastLogTerm){
 
@@ -312,9 +337,11 @@ public class RaftNode {
     }
 
     /*
-    * Helper function to determine if a node's log is consistent with the leader's log.
-    * 
-    * 
+    * Determine if a node's log is consistent with the leader's log.
+    * @param - prevLogIndex
+    * @param - prevLogTerm
+    * @return true if the node's log is consistent with the leader's log either the log terms are equal or the node's prev log is empty.
+    * false if the node doesn't contain an entry at prevLogIndex whose term matches the prevLogTerm of the leader. Or the prevLogIndex is greater the leader's log itself.
     */    
     public boolean checkLogConsistency(int prevLogIndex, int prevLogTerm){
         synchronized(state.getLock()){
@@ -333,12 +360,12 @@ public class RaftNode {
     }
 
     /*
+    * Processes and updates the node's log to match up with leader node's log.
+    * Set commit index to the min of the leader's commit index and the index of the last new entry.
     * TODO: Add logic to truncate local file if they are existing entries after the first new index.
     * TODO: Add logic to persist new log entries to local storage.
-    * Updates node's log to match up with leader node's log.
-    * Set commit index to either the leader's commit index or last log index.
-    * Then applys these log entries to the state machine.
-    * 
+    * @param - newEntries - List of all the new entries to append to the node's log
+    * @param - leaderCommit - Commit index of leader node.
     */
     public void processLogEntries(List<LogEntry> newEntries, int leaderCommit){
 
@@ -351,7 +378,8 @@ public class RaftNode {
                 int nextIdxCompare = firstNewIndex;
                 int newEntriesIdx = 0;
 
-                //If there are existing entries at or after first new index, we must remove them first.
+                //If there are existing entries at or after the index of the first new entry and the terms are different, 
+                //we must truncate the entry list starting from the index of the first new entry first.
                 while(nextIdxCompare < log.size() && newEntriesIdx < newEntries.size()){
                     if(log.get(nextIdxCompare).getTerm() != newEntries.get(newEntriesIdx).getTerm()){
                         System.out.println("Log conflict at Index " + nextIdxCompare + ". Truncating log.");
@@ -364,25 +392,26 @@ public class RaftNode {
                     newEntriesIdx++;
                 }
 
-
+                //Append any new entries that are not in the node's log.
                 if(newEntriesIdx < newEntries.size()){
                     log.addAll(newEntries.subList(newEntriesIdx, newEntries.size()));
                     //TODO: Insert logic to persist new entries to disk.
                 }    
             }
-
+            //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
             if(leaderCommit > state.getCommitIndex()){
-                state.setCommitIndex(Math.min(leaderCommit, log.size() - 1)); //Set commitIndex to prepare to updateCommitIndex method.
+                state.setCommitIndex(Math.min(leaderCommit, log.size() - 1)); 
 
-                applyToStateMachine();  //Apply State Machine logic here.
+                applyToStateMachine(); 
             }
         }
     }
 
     /*
-    * TODO: Connect to state machine to actual KV-store database. 
-    * Dummy method to simulate the log changes being apply to the state machine. 
-    * Will need to be modified to connect and apply log changes to an actual KV-store database.
+    *  
+    * Method to simulate the log changes being applied to the state machine. 
+    * TODO: Will need to be modified to connect and apply log changes to an actual KV-store database.
+    * TODO: Connect to state machine to actual KV-store database.
     * 
     */
     public void applyToStateMachine(){
@@ -390,6 +419,9 @@ public class RaftNode {
             List<LogEntry> log = state.getLog();
             int commitIndex = state.getCommitIndex();
             int lastApplied = state.getLastApplied();
+
+            //Keep incrementing last applied index as long as the commitIndex is greater than the last applied index. 
+            //Apply the logs of the last applied index to the state matchine.
             while(commitIndex > lastApplied){
                 lastApplied++;
 
@@ -426,6 +458,12 @@ public class RaftNode {
         }
     }
 
+    /*
+    * Updates the commit index of the node.
+    * If the majority commit index is greater than the commit index of the node
+    * and the terms of the majority and the node match, update the commit index to match the majority.
+    * And apply the logs to the state machine and remove any pending commits.
+    */
     private synchronized void updateCommitIndex() {
         List<Integer> indices = new ArrayList<>();
         indices.add(state.getLog().size() - 1); 
@@ -447,10 +485,10 @@ public class RaftNode {
         int previousCommitIndex = state.getCommitIndex();
 
         if (majorityIndex > previousCommitIndex && state.getLog().get(majorityIndex).getTerm() == state.getCurrentTerm()) {
-                // System.out.println("------");
-                // System.out.println("Current MatchIndices: " + state.getMatchIndex());
-                // System.out.println("Calculated MajorityIndex: " + majorityIndex);
-                // System.out.println("Log Term at MajorityIndex: " + state.getLog().get(majorityIndex).getTerm());
+                System.out.println("------");
+                System.out.println("Current MatchIndices: " + state.getMatchIndex());
+                System.out.println("Calculated MajorityIndex: " + majorityIndex);
+                System.out.println("Log Term at MajorityIndex: " + state.getLog().get(majorityIndex).getTerm());
                 System.out.println("------");
                 System.out.println(String.format("Majority votes obtained! Committing up to index %s", majorityIndex));
                 System.out.println("------");
@@ -467,14 +505,15 @@ public class RaftNode {
                 }
             }
     }    
+
     /*
-    * TBD - Will add description later.
-    *
-    *
+    * Method to simulate the leader's response to a client's request.
+    * @param - command - The client's command sent to the node leader.
+    * @param - responseObserver - Response handler to receive and send streaming messages from the client.
     */
     public synchronized void simulateResponseClientRequest(String command, StreamObserver<ClientResponse> responseObserver) {
             System.out.println("Current Role for " + state.getNodeId() + " is " + state.getRole());
-            if (state.getRole() != NodeRole.LEADER) {
+            if (state.getRole() != NodeRole.LEADER) { //Only leader gets to respond to the client.
                 responseObserver.onNext(ClientResponse.newBuilder()
                         .setSuccess(false)
                         .setMessage("Node " + state.getNodeId() + " is not the leader.")
@@ -482,6 +521,8 @@ public class RaftNode {
                 responseObserver.onCompleted();
                 return;
             }
+
+            //Create a new log entry of the client's command.
             int entryIndex = state.getLog().size();
             LogEntry entry = LogEntry.newBuilder()
                     .setTerm(state.getCurrentTerm())
@@ -492,6 +533,7 @@ public class RaftNode {
             state.getLog().add(entry);
             System.out.println(String.format("Leader received command: %s. Log size now %s", command, entryIndex));
 
+            //Invokes heartbeat to perform log replication of the new log entry.
             waitForCommit(entryIndex).thenAccept(committed -> {
                 if (committed) {
                     responseObserver.onNext(ClientResponse.newBuilder()
@@ -510,8 +552,9 @@ public class RaftNode {
         }        
 
     /*
-    * Helper method for waiting on committing changes.
-    * If leader node waits for more than 5 seconds, remove the pending commit and send a unsuccessful response.
+    * Method for waiting for the follower nodes to replicate the log entry and return back a response.
+    * If not enough nodes are able to reach consensus within 5 seconds, then the commit fails aand sends out an unsuccessful response.
+    * @param index - the new entry log index.
     */
     public CompletableFuture<Boolean> waitForCommit(int index) {
         // CompletableFuture<Boolean> future = new CompletableFuture<>();

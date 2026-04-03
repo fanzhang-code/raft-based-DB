@@ -24,10 +24,10 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
         //A node grants vote if: 1. candidate’s term is at least as new 2. it hasn’t voted yet (or voted for same candidate)
         synchronized (state.getLock()) {
-            // System.out.println("Current Candidate Node: " + request.getCandidateId());
-            // System.out.println("Current Request Term: " + request.getTerm());
-            // System.out.println("Current State Term: " + state.getCurrentTerm());
-            // System.out.println("----------");
+            System.out.println("Current Candidate Node: " + request.getCandidateId());
+            System.out.println("Current Request Term: " + request.getTerm());
+            System.out.println("Current State Term: " + state.getCurrentTerm());
+            System.out.println("----------");
             if (request.getTerm() < state.getCurrentTerm()) {
                 voteGranted = false;
             } else {
@@ -38,6 +38,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                     state.setVotedFor(null);
                 }
 
+                // Checks if the candidate's log is update to date with the receiver's log.
                 if ((state.getVotedFor() == null || state.getVotedFor().equals(request.getCandidateId())) && raftNode.isLogUpToDate(request.getLastLogIndex(), request.getLastLogTerm())) {
                     //grant vote and record voteFor
                     state.setVotedFor(request.getCandidateId());
@@ -80,6 +81,9 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 //Also reset the vote, so we can vote in the new term. Set to null.
                 raftNode.resetHeartbeatTimer(); //reset heartbeat
 
+                //Checks log consistency between receiver and leader. 
+                //Process the logs to the receiver and returns a successful response.
+                //Otherwise, return a unsuccessful response due to log inconsistency.
                 //TODO: We will need to store logs in local storage.
                 if(raftNode.checkLogConsistency(request.getPrevLogIndex(), request.getPrevLogTerm())){ 
                     raftNode.processLogEntries(request.getEntriesList(), request.getLeaderCommit());
