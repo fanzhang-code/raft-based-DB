@@ -21,7 +21,9 @@ public class LogStorage implements Serializable{
     RocksDB db;
     File dir;
     
-
+    //separate RocksDB storage for each node's persistent state
+    //Stores current term, candidate that received vote, and the log
+    //Storage created in /tmp/rocksdb/[nodeID]/state
     public LogStorage(String nodeId) {
         RocksDB.loadLibrary();
         Options options = new Options();
@@ -39,7 +41,9 @@ public class LogStorage implements Serializable{
         System.out.println("Persistent State storage initialized in /tmp/rocksdb/state");
     }
 
-    public synchronized void saveState(int currentTerm, String votedFor, List<LogEntry> log){
+    //should be called everytime currentTerm, votedFor, or log is changed
+    //persists current state to disk
+    public void saveState(int currentTerm, String votedFor, List<LogEntry> log){
         try {
             db.put("currentTerm".getBytes(), String.valueOf(currentTerm).getBytes());
             db.put("votedFor".getBytes(), votedFor != null ? votedFor.getBytes() : "null".getBytes());    
@@ -51,32 +55,7 @@ public class LogStorage implements Serializable{
         }
     }
     
-
-    public synchronized List<LogEntry> loadState(RaftNodeState state) {
-        List<LogEntry> log = new ArrayList<>(); 
-        try {
-            byte[] currentTerm = db.get("currentTerm".getBytes());
-            byte[] votedFor = db.get("votedFor".getBytes());
-            byte[] logBytes = db.get("log".getBytes());
-
-            if (currentTerm == null || votedFor == null || logBytes == null) {
-                return log; //return empty log if no state found
-            }
-
-            state.setCurrentTerm(Integer.parseInt(new String(currentTerm)));
-
-            String votedForStr = new String(votedFor);
-            state.setVotedFor("null".equals(votedForStr) ? null : votedForStr);
-            
-            log = deserializeLog(logBytes);
-
-        } catch (IOException | RocksDBException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return log;
-    }
-
-    public synchronized List<LogEntry> getLog(){
+    public List<LogEntry> getLog(){
         List<LogEntry> log = new ArrayList<>();
         try{
             byte[] logBytes = db.get("log".getBytes());
@@ -88,7 +67,7 @@ public class LogStorage implements Serializable{
         }
         return log;
     }
-    public synchronized String getVotedFor(){
+    public String getVotedFor(){
         try {
             byte[] votedFor = db.get("votedFor".getBytes());
             return votedFor != null ? new String(votedFor) : null;
@@ -98,7 +77,7 @@ public class LogStorage implements Serializable{
         return null;
     }
 
-    public synchronized int getCurrentTerm(){
+    public int getCurrentTerm(){
         try {
             byte[] currentTerm = db.get("currentTerm".getBytes());
             return currentTerm != null ? Integer.parseInt(new String(currentTerm)) : 0;
