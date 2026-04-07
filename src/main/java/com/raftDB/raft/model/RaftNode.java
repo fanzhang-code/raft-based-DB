@@ -1,16 +1,5 @@
 package com.raftDB.raft.model;
 
-import com.raftDB.raft.config.NodeConfig;
-import com.raftDB.raft.core.RaftServiceImpl;
-import com.raftDB.raft.rpc.*;
-import io.grpc.ServerBuilder;
-import io.grpc.StatusRuntimeException;
-import io.grpc.stub.StreamObserver;
-import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
-import io.grpc.Server;
-
-import io.grpc.Status;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,10 +9,32 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.raftDB.raft.config.NodeConfig;
+import com.raftDB.raft.core.RaftServiceImpl;
+import com.raftDB.raft.rpc.AppendEntriesRequest;
+import com.raftDB.raft.rpc.AppendEntriesResponse;
+import com.raftDB.raft.rpc.ClientResponse;
+import com.raftDB.raft.rpc.LogEntry;
+import com.raftDB.raft.rpc.RaftServiceGrpc;
+import com.raftDB.raft.rpc.RequestVoteRequest;
+import com.raftDB.raft.rpc.RequestVoteResponse;
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import io.grpc.stub.StreamObserver;
+
+
+
 public class RaftNode {
 
     private final NodeConfig config;
     private final RaftNodeState state;
+    private final KVStorage store;
+    private final LogStorage logStore;
 
     private Server server;
 
@@ -36,13 +47,34 @@ public class RaftNode {
     public RaftNode(NodeConfig config) {
         this.config = config;
         this.state = new RaftNodeState(config.getNodeId());
+
+        this.store = new KVStorage(config.getNodeId());
+        this.logStore = new LogStorage(config.getNodeId());
+
+        //Load the previous persisted state from disk if exists.
+        List<LogEntry> oldLog = logStore.getLog();
+        String prevVote = logStore.getVotedFor();
+        int prevCurTerm = logStore.getCurrentTerm();
+
+        if (!oldLog.isEmpty()) {
+            state.getLog().addAll(oldLog);
+            state.setVotedFor(prevVote);
+            state.setCurrentTerm(prevCurTerm);
+
+            System.out.println("Previous state loaded from disk:");
+            
+        } else {
+            System.out.println("No previous state found");
+        }
+        
+        System.out.println("---------------");
+        
     }
 
     public void start() throws IOException {
         startServer();
         //Set up connections with peers
         createPeerStubs();
-
         startElectionTimer();
         startHeartbeatLoop();
 
@@ -137,8 +169,12 @@ public class RaftNode {
             state.setCurrentTerm(state.getCurrentTerm() + 1);
             state.setVotedFor(config.getNodeId());
             currentTerm = state.getCurrentTerm();
+            
         }
         int votes = 1; // count the vote for self
+
+        //persist state to local storage
+        save(currentTerm, state.getVotedFor(), state.getLog());
 
         System.out.println(config.getNodeId() + " started election for term " + currentTerm);
 
@@ -174,7 +210,7 @@ public class RaftNode {
                     synchronized (state.getLock()) {
                         state.setCurrentTerm(response.getTerm());
                         state.setRole(com.raftDB.raft.model.NodeRole.FOLLOWER);
-                        state.setVotedFor(null);
+                        state.setVotedFor(null); 
                     }
                     return;
                 }
@@ -190,7 +226,7 @@ public class RaftNode {
         int totalNodes = config.getPeers().size() + 1;
         int majority = (totalNodes / 2) + 1;
 
-        // System.out.println("Majority Needed: " + majority + "/" + totalNodes);
+        //System.out.println("Majority Needed: " + majority + "/" + totalNodes);
 
         synchronized (state.getLock()) {
             //if get majority vote
@@ -208,6 +244,8 @@ public class RaftNode {
                 System.out.println(config.getNodeId() + " failed to become leader. Votes=" + votes);
             }
         }
+        
+        
     }
 
     private void startHeartbeatLoop() {
@@ -290,7 +328,6 @@ public class RaftNode {
                                         System.out.println("------");
                                         state.getNextIndex().put(peerId, lastAppendedIndex + 1);
                                         state.getMatchIndex().put(peerId, lastAppendedIndex);
-
                                         updateCommitIndex();
                                     }
 
@@ -374,7 +411,6 @@ public class RaftNode {
             if(!newEntries.isEmpty()){
                 // Get first new entry index.
                 int firstNewIndex = newEntries.get(0).getIndex();
-
                 int nextIdxCompare = firstNewIndex;
                 int newEntriesIdx = 0;
 
@@ -385,6 +421,7 @@ public class RaftNode {
                         System.out.println("Log conflict at Index " + nextIdxCompare + ". Truncating log.");
                         log.subList(nextIdxCompare, log.size()).clear();
                         //TODO: Insert logic to truncate the local log and file.
+                        //Should be implemented after 1st milestone submission
                         break;
                     }
 
@@ -395,13 +432,17 @@ public class RaftNode {
                 //Append any new entries that are not in the node's log.
                 if(newEntriesIdx < newEntries.size()){
                     log.addAll(newEntries.subList(newEntriesIdx, newEntries.size()));
+                     
                     //TODO: Insert logic to persist new entries to disk.
+
+                    //persist logs and current state to local storage
+                    save(state.getCurrentTerm(), state.getVotedFor(), log);
+
                 }    
             }
             //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
             if(leaderCommit > state.getCommitIndex()){
                 state.setCommitIndex(Math.min(leaderCommit, log.size() - 1)); 
-
                 applyToStateMachine(); 
             }
         }
@@ -411,7 +452,7 @@ public class RaftNode {
     *  
     * Method to simulate the log changes being applied to the state machine. 
     * TODO: Will need to be modified to connect and apply log changes to an actual KV-store database.
-    * TODO: Connect to state machine to actual KV-store database.
+    * TODO: Connect the state machine to actual KV-store database.
     * 
     */
     public void applyToStateMachine(){
@@ -419,6 +460,10 @@ public class RaftNode {
             List<LogEntry> log = state.getLog();
             int commitIndex = state.getCommitIndex();
             int lastApplied = state.getLastApplied();
+
+            //persist logs and current state to local storage
+            save(state.getCurrentTerm(), state.getVotedFor(), log); 
+
 
             //Keep incrementing last applied index as long as the commitIndex is greater than the last applied index. 
             //Apply the logs of the last applied index to the state matchine.
@@ -431,7 +476,6 @@ public class RaftNode {
                 }
 
                 state.setLastApplied(lastApplied);
-
                 LogEntry entry = log.get(lastApplied);
                 String command = entry.getCommand();
 
@@ -441,13 +485,19 @@ public class RaftNode {
 
                 //TODO: Remove these statements as these are just only meant for testing log replication. 
                 //TODO: Eventually, we will need to call the KV-store database to execute those commands.
-                String[] parts = command.split(" ");
-                String action = parts[0].toUpperCase();
+                String[] parts = command.split(" ");    
+                //String action = parts[0].toUpperCase();
+                
+                // Call KV-store Database to execute command
+                store.apply(command);
 
+                /*
                 if (action.equals("SET") && parts.length == 3) {
                     state.getStateMachineData().put(parts[1], parts[2]);
                     System.out.println(String.format("STATE MACHINE: Applied SET %s = %s", parts[1], parts[2]));
                 } 
+                */
+                
                 // else if (action.equals("DELETE") && parts.length == 2) {
                 //     state.getStateMachineData().remove(parts[1]);
                 //     System.out.println(String.format("STATE MACHINE: Applied DELETE %s", parts[1]));
@@ -595,4 +645,16 @@ public class RaftNode {
             server.awaitTermination();
         }
     }
+    
+    /*
+    * Method to persist server state to stable storage
+    * @param currentTerm - latest term the server has seen.
+    * @param votedFor - candidateId that received vote in current term, or null if none.
+    * @param log - log entries containing commands, terms, and index.
+    */
+    public void save(int currentTerm, String votedFor, List<LogEntry> log){
+        logStore.saveState(currentTerm, votedFor, log);
+    }
+
+
 }

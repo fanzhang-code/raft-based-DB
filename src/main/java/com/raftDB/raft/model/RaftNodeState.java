@@ -69,7 +69,7 @@ public class RaftNodeState {
     public List<LogEntry> getLog() {
         return log;
     }
-
+    
     public int getLastLogTerm(int lastLogIndex){
         if (lastLogIndex <= 0 || log.isEmpty()){
             return 0;

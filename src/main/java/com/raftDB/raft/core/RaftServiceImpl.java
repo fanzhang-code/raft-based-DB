@@ -1,9 +1,14 @@
 package com.raftDB.raft.core;
 
-import com.raftDB.raft.model.RaftNodeState;
-import com.raftDB.raft.rpc.*;
-import io.grpc.stub.StreamObserver;
 import com.raftDB.raft.model.RaftNode;
+import com.raftDB.raft.model.RaftNodeState;
+import com.raftDB.raft.rpc.AppendEntriesRequest;
+import com.raftDB.raft.rpc.AppendEntriesResponse;
+import com.raftDB.raft.rpc.RaftServiceGrpc;
+import com.raftDB.raft.rpc.RequestVoteRequest;
+import com.raftDB.raft.rpc.RequestVoteResponse;
+
+import io.grpc.stub.StreamObserver;
 
 public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
@@ -18,6 +23,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                             StreamObserver<RequestVoteResponse> responseObserver) {
 
         RaftNodeState state = raftNode.getState();
+        raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
 
         boolean voteGranted = false;
         int currentTerm;
@@ -88,6 +94,11 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 if(raftNode.checkLogConsistency(request.getPrevLogIndex(), request.getPrevLogTerm())){ 
                     raftNode.processLogEntries(request.getEntriesList(), request.getLeaderCommit());
                     success = true;
+
+                    //store logs and state in local storage
+                    raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
+
+
                 } else {
                     success = false;
                 }
