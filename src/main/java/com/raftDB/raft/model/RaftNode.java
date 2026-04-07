@@ -486,10 +486,10 @@ public class RaftNode {
                 //TODO: Remove these statements as these are just only meant for testing log replication. 
                 //TODO: Eventually, we will need to call the KV-store database to execute those commands.
                 String[] parts = command.split(" ");    
-                String action = parts[0].toUpperCase();
+                //String action = parts[0].toUpperCase();
                 
                 // Call KV-store Database to execute command
-                apply(command);
+                store.apply(command);
 
                 /*
                 if (action.equals("SET") && parts.length == 3) {
@@ -656,24 +656,5 @@ public class RaftNode {
         logStore.saveState(currentTerm, votedFor, log);
     }
 
-    /*
-    * Method to apply commands to local RocksDB storage.
-    * @param command - command written in the form "PUT key value", "GET key", or "DELETE key".
-    */
-    public void apply(String command){
-        String[] parts = command.split(" ");    
-        String action = parts[0].toUpperCase();
 
-        if (action.equals("PUT") && parts.length == 3) {
-            store.put(parts[1], parts[2]);
-            System.out.println(String.format("DB: Applied PUT %s = %s", parts[1], parts[2]));
-        }
-        else if (action.equals("GET") && parts.length == 2) {
-            System.out.println(String.format("DB: Applied GET %s = %s", parts[1], store.get(parts[1])));
-        }
-        else if (action.equals("DELETE") && parts.length == 2) {
-            store.delete(parts[1]);
-            System.out.println(String.format("DB: Applied DELETE %s", parts[1]));
-        }
-    }
 }

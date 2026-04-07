@@ -69,4 +69,25 @@ public class KVStorage{
         it.close();
     }
 
+    /*
+    * Method to apply commands to local RocksDB storage.
+    * Currently just prints GET results to log/terminal
+    * @param command - command written in the form "PUT key value", "GET key", or "DELETE key".
+    */
+    public void apply(String command){
+        String[] parts = command.split(" ");    
+        String action = parts[0].toUpperCase();
+
+        if (action.equals("PUT") && parts.length == 3) {
+            put(parts[1], parts[2]);
+            System.out.println(String.format("DB: Applied PUT %s = %s", parts[1], parts[2]));
+        }
+        else if (action.equals("GET") && parts.length == 2) {
+            System.out.println(String.format("DB: Applied GET %s = %s", parts[1], get(parts[1])));
+        }
+        else if (action.equals("DELETE") && parts.length == 2) {
+            delete(parts[1]);
+            System.out.println(String.format("DB: Applied DELETE %s", parts[1]));
+        }
+    }
 }
