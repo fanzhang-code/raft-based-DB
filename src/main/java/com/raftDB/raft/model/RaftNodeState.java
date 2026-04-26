@@ -25,6 +25,8 @@ public class RaftNodeState {
 
     private volatile int commitIndex = 0;
     private volatile int lastApplied = 0;
+    private volatile int lastIncludedIndex = -1;
+    private volatile int lastIncludedTerm = 0;
     private final ConcurrentMap<String, Integer> nextIndex = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Integer> matchIndex = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> stateMachineData = new ConcurrentHashMap<>();
@@ -90,6 +92,22 @@ public class RaftNodeState {
         return this.getLog().get(index).getTerm();
     }
 
+    public int getLastIncludedIndex() {
+        return lastIncludedIndex;
+    }
+
+    public int getLastIncludedTerm() {
+        return lastIncludedTerm;
+    }
+
+    public void setLastIncludedIndex(int lastIncludedIndex) {
+        this.lastIncludedIndex = lastIncludedIndex;
+    }
+
+    public void setLastIncludedTerm(int lastIncludedTerm) {
+        this.lastIncludedTerm = lastIncludedTerm;
+    }
+
     public int getCommitIndex() {
         return commitIndex;
     }
@@ -120,5 +138,5 @@ public class RaftNodeState {
 
     public ConcurrentMap<Integer, CompletableFuture<Boolean>> getPendingCommits() {
         return pendingCommits;
-    }    
+    }
 }

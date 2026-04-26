@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
@@ -43,6 +44,7 @@ public class RaftNode {
 
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
+    private static final int SNAPSHOT_THRESHOLD = 3;
 
     public RaftNode(NodeConfig config) {
         this.config = config;
@@ -505,6 +507,8 @@ public class RaftNode {
                 
                 state.setLastApplied(lastApplied);
             }
+            // After applying committed logs, check whether snapshot is needed
+            maybeCreateSnapshot();
         }
     }
 
@@ -656,5 +660,62 @@ public class RaftNode {
         logStore.saveState(currentTerm, votedFor, log);
     }
 
+    /*
+     Creates a snapshot of the current state machine (KV store) if enough new logs have been applied since the last snapshot.
+     */
+    private void maybeCreateSnapshot() {
+        synchronized (state.getLock()) {
+            int lastApplied = state.getLastApplied();
+
+            System.out.println(
+                    "Snapshot check: lastApplied = " + lastApplied +
+                            ", lastIncludedIndex = " + state.getLastIncludedIndex() +
+                            ", threshold = " + SNAPSHOT_THRESHOLD
+            );
+
+            //Only create snapshot when enough new logs have been applied
+            if (lastApplied - state.getLastIncludedIndex() < SNAPSHOT_THRESHOLD) {
+                return;
+            }
+
+            //Snapshot includes everything already applied to the state machine
+            int lastIncludedIndex = lastApplied;
+            int lastIncludedTerm = state.getTermAt(lastIncludedIndex);
+
+            Map<String, String> snapshotData = store.exportAll();
+
+            logStore.saveSnapshot(lastIncludedIndex, lastIncludedTerm, snapshotData); //save snapshot to db
+            truncateLogUpTo(lastIncludedIndex); //Safely remove old log entries already covered by snapshot
+
+            save(state.getCurrentTerm(), state.getVotedFor(), state.getLog()); //save the truncated log
+
+            state.setLastIncludedIndex(lastIncludedIndex);
+            state.setLastIncludedTerm(lastIncludedTerm);
+
+            System.out.println("Snapshot created up to index " + lastIncludedIndex);
+        }
+    }
+
+    /*
+     * Safely truncates log entries that are already included in the snapshot.
+     * @param lastIncludedIndex the highest log index included in the snapshot
+     */
+    private void truncateLogUpTo(int lastIncludedIndex) {
+        synchronized (state.getLock()) {
+            List<LogEntry> log = state.getLog();
+
+            int oldSize = log.size();
+
+            log.removeIf(entry -> entry.getIndex() <= lastIncludedIndex);
+
+            int newSize = log.size();
+
+            System.out.println(
+                    "Log truncated up to index " + lastIncludedIndex +
+                            ". Old size = " + oldSize +
+                            ", new size = " + newSize
+            );
+        }
+    }
 
 }

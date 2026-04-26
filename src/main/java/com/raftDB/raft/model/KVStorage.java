@@ -7,6 +7,8 @@ import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+import java.util.HashMap;
+import java.util.Map;
 
 
 public class KVStorage{
@@ -33,6 +35,19 @@ public class KVStorage{
             e.printStackTrace();
         }
         System.out.println("Storage initialized in /tmp/rocksdb");
+    }
+
+    //reads all KV pairs from DB and returns as a Map, put into SnapshotData
+    public Map<String, String> exportAll() {
+        Map<String, String> result = new HashMap<>();
+
+        RocksIterator it = db.newIterator();
+        for (it.seekToFirst(); it.isValid(); it.next()) {
+            result.put(new String(it.key()), new String(it.value()));
+        }
+        it.close();
+
+        return result;
     }
     
     public void put(String key, String value) {

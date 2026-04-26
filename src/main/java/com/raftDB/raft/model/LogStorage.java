@@ -10,6 +10,7 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
@@ -97,5 +98,26 @@ public class LogStorage implements Serializable{
         ByteArrayInputStream bis = new ByteArrayInputStream(data);
         ObjectInputStream ois = new ObjectInputStream(bis);
         return (List<LogEntry>) ois.readObject();
+    }
+
+    private static byte[] serializeSnapshot(SnapshotData snapshot) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(snapshot);
+        return bos.toByteArray();
+    }
+
+    public void saveSnapshot(int lastIncludedIndex, int lastIncludedTerm, Map<String, String> data) {
+        SnapshotData snapshot = new SnapshotData(lastIncludedIndex, lastIncludedTerm, data);
+
+        try {
+            db.put("snapshot".getBytes(), serializeSnapshot(snapshot));
+            db.put("lastIncludedIndex".getBytes(), String.valueOf(lastIncludedIndex).getBytes());
+            db.put("lastIncludedTerm".getBytes(), String.valueOf(lastIncludedTerm).getBytes());
+
+            System.out.println("Snapshot saved up to index " + lastIncludedIndex);
+        } catch (IOException | RocksDBException e) {
+            e.printStackTrace();
+        }
     }
 }
