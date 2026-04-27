@@ -45,6 +45,7 @@ public class RaftNode {
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
     private static final int SNAPSHOT_THRESHOLD = 10;
+    private static final boolean LOG_COMPACTION_ENABLED = true;
 
     public RaftNode(NodeConfig config) {
         this.config = config;
@@ -710,6 +711,9 @@ public class RaftNode {
      Creates a snapshot of the current state machine (KV store) if enough new logs have been applied since the last snapshot.
      */
     private void maybeCreateSnapshot() {
+        if (!LOG_COMPACTION_ENABLED) {
+            return;
+        }
         synchronized (state.getLock()) {
             int lastApplied = state.getLastApplied();
 
