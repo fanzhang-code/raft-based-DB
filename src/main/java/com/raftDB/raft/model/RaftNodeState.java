@@ -36,6 +36,26 @@ public class RaftNodeState {
         this.nodeId = nodeId;
     }
 
+    /*
+     * Converts a Raft log index to the ArrayList position after snapshot truncation.
+     *
+     * @param raftIndex the original Raft log index
+     * @return the position inside the current in-memory log list
+     */
+    public int toListPosition(int raftIndex) {
+        return raftIndex - lastIncludedIndex - 1;
+    }
+
+    /*
+     * Checks whether the given Raft index is already included in the snapshot.
+     *
+     * @param raftIndex the original Raft log index
+     * @return true if this index is covered by the snapshot
+     */
+    public boolean isInSnapshot(int raftIndex) {
+        return raftIndex <= lastIncludedIndex;
+    }
+
     public Object getLock() {
         return lock;
     }
@@ -71,25 +91,38 @@ public class RaftNodeState {
     public List<LogEntry> getLog() {
         return log;
     }
-    
-    public int getLastLogTerm(int lastLogIndex){
-        if (lastLogIndex <= 0 || log.isEmpty()){
+
+    /*
+     * Returns the term for a given Raft log index.
+     *
+     * @param raftIndex the original Raft log index, not the ArrayList position
+     * @return the term at that Raft index, or -1 if not found
+     */
+    public int getLastLogTerm(int raftIndex) {
+        return getTermAt(raftIndex);
+    }
+
+    //update to handle snapshot index
+    public int getTermAt(int raftIndex) {
+        if (raftIndex < 0) {
             return 0;
         }
 
-        if(lastLogIndex >= log.size()){
+        if (raftIndex == lastIncludedIndex) {
+            return lastIncludedTerm;
+        }
+
+        if (raftIndex < lastIncludedIndex) {
+            return 0;
+        }
+
+        int pos = toListPosition(raftIndex);
+
+        if (pos < 0 || pos >= log.size()) {
             return -1;
         }
 
-        return this.getLog().get(lastLogIndex).getTerm();
-    }
-
-    public int getTermAt(int index){
-        if (index < 0){
-            return 0;
-        }
-
-        return this.getLog().get(index).getTerm();
+        return log.get(pos).getTerm();
     }
 
     public int getLastIncludedIndex() {

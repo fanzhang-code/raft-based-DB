@@ -15,6 +15,7 @@ public class KVStorage{
     
     RocksDB db;
     File dir;
+    private final Map<String, String> memoryData = new HashMap<>();
     
 
     // RocksDB storage for key-value pairs for each node
@@ -39,20 +40,13 @@ public class KVStorage{
 
     //reads all KV pairs from DB and returns as a Map, put into SnapshotData
     public Map<String, String> exportAll() {
-        Map<String, String> result = new HashMap<>();
-
-        RocksIterator it = db.newIterator();
-        for (it.seekToFirst(); it.isValid(); it.next()) {
-            result.put(new String(it.key()), new String(it.value()));
-        }
-        it.close();
-
-        return result;
+        return new HashMap<>(memoryData);
     }
-    
+
     public void put(String key, String value) {
         try {
             db.put(key.getBytes(), value.getBytes());
+            memoryData.put(key, value);
         } catch (RocksDBException e) {
             e.printStackTrace();
         }
@@ -71,6 +65,7 @@ public class KVStorage{
     public void delete(String key) {
         try {
             db.delete(key.getBytes());
+            memoryData.remove(key);
         } catch (RocksDBException e) {
             e.printStackTrace();
         }
