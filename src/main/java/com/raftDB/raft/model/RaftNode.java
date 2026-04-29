@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
@@ -43,6 +44,8 @@ public class RaftNode {
 
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
+    private static final int SNAPSHOT_THRESHOLD = 10;
+    private static final boolean LOG_COMPACTION_ENABLED = true;
 
     public RaftNode(NodeConfig config) {
         this.config = config;
@@ -146,7 +149,7 @@ public class RaftNode {
     */
     public void intializeLeaderState(){
         synchronized(state.getLock()){
-            int lastIndex = state.getLog().size() - 1;
+            int lastIndex = state.getLastIncludedIndex() + state.getLog().size();
 
             // System.out.println("-------");
             // System.out.println("Initalize Leader state. Last Log Index is :" + lastIndex);
@@ -280,10 +283,18 @@ public class RaftNode {
                             if (prevLogIndex >= 0){
                                 prevLogTerm = state.getTermAt(prevLogIndex);
                             }
+                            //If follower’s nextIndex points to a log that the leader already compacted, the leader cannot send normal AppendEntries
+                            if (prevLogIndex > state.getLastIncludedIndex()
+                                    && state.getTermAt(prevLogIndex) == -1) {
+                                System.out.println("Cannot find prevLogIndex " + prevLogIndex +
+                                        " for peer " + peerId + ". Need snapshot install later.");
+                                continue;
+                            }
 
-                            //Add log size > nextIdx/peerId logic. Include entriesToSend logic to have new data.
-                            if (log.size() > nextIdx){
-                                entriesToSend = new ArrayList<>(log.subList(nextIdx, log.size()));
+                            int startPos = state.toListPosition(nextIdx);
+
+                            if (startPos >= 0 && startPos < log.size()) {
+                                entriesToSend = new ArrayList<>(log.subList(startPos, log.size()));
                             }
                         }
 
@@ -363,7 +374,7 @@ public class RaftNode {
     */
     public boolean isLogUpToDate(int lastLogIndex, int lastLogTerm){
         synchronized(state.getLock()){
-            int myLastLogIndex = state.getLog().size() - 1;
+            int myLastLogIndex = state.getLastIncludedIndex() + state.getLog().size();
             int myLastLogTerm = state.getTermAt(myLastLogIndex);
 
             if (lastLogTerm != myLastLogTerm) {
@@ -380,20 +391,32 @@ public class RaftNode {
     * @param - prevLogTerm
     * @return true if the node's log is consistent with the leader's log either the log terms are equal or the node's prev log is empty.
     * false if the node doesn't contain an entry at prevLogIndex whose term matches the prevLogTerm of the leader. Or the prevLogIndex is greater the leader's log itself.
-    */    
-    public boolean checkLogConsistency(int prevLogIndex, int prevLogTerm){
-        synchronized(state.getLock()){
-            List<LogEntry> log = state.getLog();
-            
-            if (prevLogIndex == -1){
+    */
+    public boolean checkLogConsistency(int prevLogIndex, int prevLogTerm) {
+        synchronized (state.getLock()) {
+
+            // Beginning of log is always valid
+            if (prevLogIndex == -1) {
                 return true;
             }
 
-            if (prevLogIndex >= log.size()){
+            // If prevLogIndex is exactly the snapshot boundary, compare with snapshot metadata instead of log list.
+            if (prevLogIndex == state.getLastIncludedIndex()) {
+                return state.getLastIncludedTerm() == prevLogTerm;
+            }
+
+            // If prevLogIndex is older than snapshot, it has already been compacted.
+            if (prevLogIndex < state.getLastIncludedIndex()) {
+                return true;
+            }
+
+            int pos = state.toListPosition(prevLogIndex);
+
+            if (pos < 0 || pos >= state.getLog().size()) {
                 return false;
             }
 
-            return state.getLastLogTerm(prevLogIndex) == prevLogTerm;
+            return state.getLog().get(pos).getTerm() == prevLogTerm;
         }
     }
 
@@ -414,18 +437,31 @@ public class RaftNode {
                 int nextIdxCompare = firstNewIndex;
                 int newEntriesIdx = 0;
 
-                //If there are existing entries at or after the index of the first new entry and the terms are different, 
-                //we must truncate the entry list starting from the index of the first new entry first.
-                while(nextIdxCompare < log.size() && newEntriesIdx < newEntries.size()){
-                    if(log.get(nextIdxCompare).getTerm() != newEntries.get(newEntriesIdx).getTerm()){
-                        System.out.println("Log conflict at Index " + nextIdxCompare + ". Truncating log.");
-                        log.subList(nextIdxCompare, log.size()).clear();
-                        //TODO: Insert logic to truncate the local log and file.
-                        //Should be implemented after 1st milestone submission
+
+                while (newEntriesIdx < newEntries.size()) {
+                    LogEntry newEntry = newEntries.get(newEntriesIdx);
+                    int raftIndex = newEntry.getIndex();
+
+                    // If this entry is already included in snapshot, skip it
+                    if (raftIndex <= state.getLastIncludedIndex()) {
+                        newEntriesIdx++;
+                        continue;
+                    }
+
+                    int pos = state.toListPosition(raftIndex);
+
+                    // If local log does not have this index yet, stop checking
+                    if (pos < 0 || pos >= log.size()) {
                         break;
                     }
 
-                    nextIdxCompare++;
+                    // If same index but different term, truncate from this position
+                    if (log.get(pos).getTerm() != newEntry.getTerm()) {
+                        System.out.println("Log conflict at Index " + raftIndex + ". Truncating log.");
+                        log.subList(pos, log.size()).clear();
+                        break;
+                    }
+
                     newEntriesIdx++;
                 }
 
@@ -442,7 +478,8 @@ public class RaftNode {
             }
             //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
             if(leaderCommit > state.getCommitIndex()){
-                state.setCommitIndex(Math.min(leaderCommit, log.size() - 1)); 
+                int lastLogIndex = state.getLastIncludedIndex() + log.size();
+                state.setCommitIndex(Math.min(leaderCommit, lastLogIndex));
                 applyToStateMachine(); 
             }
         }
@@ -456,6 +493,7 @@ public class RaftNode {
     * 
     */
     public void applyToStateMachine(){
+        boolean shouldSnapshot = false;
         synchronized(state.getLock()){
             List<LogEntry> log = state.getLog();
             int commitIndex = state.getCommitIndex();
@@ -470,13 +508,17 @@ public class RaftNode {
             while(commitIndex > lastApplied){
                 lastApplied++;
 
-                if (lastApplied >= log.size()) {
-                    System.err.println("ERROR: Attempted to apply index " + lastApplied + " but log size is " + log.size());
-                    break; 
+                state.setLastApplied(lastApplied);
+                int pos = state.toListPosition(lastApplied);
+
+                if (pos < 0 || pos >= log.size()) {
+                    System.err.println("ERROR: Cannot apply raft index " + lastApplied +
+                            ", list position = " + pos +
+                            ", log size = " + log.size());
+                    break;
                 }
 
-                state.setLastApplied(lastApplied);
-                LogEntry entry = log.get(lastApplied);
+                LogEntry entry = log.get(pos);
                 String command = entry.getCommand();
 
                 if(command == null || command.isEmpty()){
@@ -505,6 +547,14 @@ public class RaftNode {
                 
                 state.setLastApplied(lastApplied);
             }
+            // After applying committed logs, check whether snapshot is needed
+            if (state.getLastApplied() - state.getLastIncludedIndex() >= SNAPSHOT_THRESHOLD) {
+                shouldSnapshot = true;
+            }
+            //maybeCreateSnapshot();
+        }
+        if (shouldSnapshot) {
+            maybeCreateSnapshot();
         }
     }
 
@@ -515,48 +565,48 @@ public class RaftNode {
     * And apply the logs to the state machine and remove any pending commits.
     */
     public void updateCommitIndex() {
-        synchronized(state.getLock()){
+        synchronized (state.getLock()) {
             List<Integer> indices = new ArrayList<>();
-            indices.add(state.getLog().size() - 1); 
 
-            for (PeerInfo peer : config.getPeers()){
+            int leaderLastIndex = state.getLastIncludedIndex() + state.getLog().size();
+            indices.add(leaderLastIndex);
+
+            for (PeerInfo peer : config.getPeers()) {
                 String peerId = peer.getNodeId();
-                indices.add(state.getMatchIndex().getOrDefault(peerId, -1));
+                indices.add(state.getMatchIndex().getOrDefault(peerId, state.getLastIncludedIndex()));
             }
-            
-            Collections.sort(indices);
-            
-            int n = indices.size();
-            int majorityIndex = indices.get(n - (n / 2 + 1));
 
-            if (majorityIndex < 0 || majorityIndex >= state.getLog().size()) {
-                    return; 
-            }
+            Collections.sort(indices);
+
+            System.out.println("Leader last index: " + leaderLastIndex);
+            System.out.println("Match indices: " + state.getMatchIndex());
+            System.out.println("All indices for majority: " + indices);
+
+            int n = indices.size();
+            int majorityIndex = indices.get(n / 2);
 
             int previousCommitIndex = state.getCommitIndex();
 
-            if (majorityIndex > previousCommitIndex && state.getLog().get(majorityIndex).getTerm() == state.getCurrentTerm()) {
-                    System.out.println("------");
-                    System.out.println("Current MatchIndices: " + state.getMatchIndex());
-                    System.out.println("Calculated MajorityIndex: " + majorityIndex);
-                    System.out.println("Log Term at MajorityIndex: " + state.getLog().get(majorityIndex).getTerm());
-                    System.out.println("------");
-                    System.out.println(String.format("Majority votes obtained! Committing up to index %s", majorityIndex));
-                    System.out.println("------");
-                    
-                    state.setCommitIndex(majorityIndex);
+            if (majorityIndex > previousCommitIndex
+                    && state.getTermAt(majorityIndex) == state.getCurrentTerm()) {
 
-                    applyToStateMachine(); 
+                System.out.println("------");
+                System.out.println("Calculated MajorityIndex: " + majorityIndex);
+                System.out.println("Log Term at MajorityIndex: " + state.getTermAt(majorityIndex));
+                System.out.println("------");
 
-                    for (int i = previousCommitIndex + 1; i <= majorityIndex; i++) {
-                        CompletableFuture<Boolean> future = state.getPendingCommits().remove(i);
-                        if (future != null) {
-                            future.complete(true);
-                        }
+                state.setCommitIndex(majorityIndex);
+                applyToStateMachine();
+
+                for (int i = previousCommitIndex + 1; i <= majorityIndex; i++) {
+                    CompletableFuture<Boolean> future = state.getPendingCommits().remove(i);
+                    if (future != null) {
+                        future.complete(true);
                     }
                 }
+            }
         }
-    }    
+    }
 
     /*
     * Method to simulate the leader's response to a client's request.
@@ -576,7 +626,7 @@ public class RaftNode {
                 }
 
                 //Create a new log entry of the client's command.
-                int entryIndex = state.getLog().size();
+                int entryIndex = state.getLastIncludedIndex() + state.getLog().size() + 1;
                 LogEntry entry = LogEntry.newBuilder()
                         .setTerm(state.getCurrentTerm())
                         .setIndex(entryIndex)
@@ -584,6 +634,7 @@ public class RaftNode {
                         .build();
                 
                 state.getLog().add(entry);
+                save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
                 System.out.println(String.format("Leader received command: %s. Log size now %s", command, entryIndex));
 
                 //Invokes heartbeat to perform log replication of the new log entry.
@@ -656,5 +707,67 @@ public class RaftNode {
         logStore.saveState(currentTerm, votedFor, log);
     }
 
+    /*
+     Creates a snapshot of the current state machine (KV store) if enough new logs have been applied since the last snapshot.
+     */
+    private void maybeCreateSnapshot() {
+        if (!LOG_COMPACTION_ENABLED) {
+            return;
+        }
+        synchronized (state.getLock()) {
+            int lastApplied = state.getLastApplied();
+
+            System.out.println(
+                    "Snapshot check: lastApplied = " + lastApplied +
+                            ", lastIncludedIndex = " + state.getLastIncludedIndex() +
+                            ", threshold = " + SNAPSHOT_THRESHOLD
+            );
+
+            //Only create snapshot when enough new logs have been applied
+            if (lastApplied - state.getLastIncludedIndex() < SNAPSHOT_THRESHOLD) {
+                return;
+            }
+
+            //Snapshot includes everything already applied to the state machine
+            int lastIncludedIndex = lastApplied;
+            int lastIncludedTerm = state.getTermAt(lastIncludedIndex);
+
+            Map<String, String> snapshotData = store.exportAll();
+
+            logStore.saveSnapshot(lastIncludedIndex, lastIncludedTerm, snapshotData);
+
+            state.setLastIncludedIndex(lastIncludedIndex);
+            state.setLastIncludedTerm(lastIncludedTerm);
+
+            truncateLogUpTo(lastIncludedIndex); //Safely remove old log entries already covered by snapshot
+
+            save(state.getCurrentTerm(), state.getVotedFor(), state.getLog()); //save the truncated log
+
+            System.out.println("Snapshot created up to index " + lastIncludedIndex);
+        }
+    }
+
+    /*
+     * Safely truncates log entries already included in the snapshot.
+     *
+     * @param lastIncludedIndex highest Raft log index included in snapshot
+     */
+    private void truncateLogUpTo(int lastIncludedIndex) {
+        synchronized (state.getLock()) {
+            List<LogEntry> log = state.getLog();
+
+            int oldSize = log.size();
+
+            log.removeIf(entry -> entry.getIndex() <= lastIncludedIndex);
+
+            int newSize = log.size();
+
+            System.out.println(
+                    "Log truncated up to index " + lastIncludedIndex +
+                            ". Old size = " + oldSize +
+                            ", new size = " + newSize
+            );
+        }
+    }
 
 }
