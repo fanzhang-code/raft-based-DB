@@ -87,6 +87,22 @@ public class LogStorage implements Serializable{
         }
         return 0;
     }
+
+    public SnapshotData getSnapshot(){
+        try {
+            byte[] snapshot = db.get("snapshot".getBytes());
+            if(snapshot != null){
+                if(snapshot != null){
+                    return deserializeSnapshot(snapshot);
+                }
+            }
+        } catch (IOException | ClassNotFoundException | RocksDBException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
     private static byte[] serializeLog(List<LogEntry> log) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(bos);
@@ -107,6 +123,12 @@ public class LogStorage implements Serializable{
         return bos.toByteArray();
     }
 
+    private static SnapshotData deserializeSnapshot(byte[] data) throws IOException, ClassNotFoundException {
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInputStream ois = new ObjectInputStream(bis);
+        return(SnapshotData) ois.readObject();
+    }
+    
     public void saveSnapshot(int lastIncludedIndex, int lastIncludedTerm, Map<String, String> data) {
         SnapshotData snapshot = new SnapshotData(lastIncludedIndex, lastIncludedTerm, data);
 

@@ -31,6 +31,7 @@ public class RaftNodeState {
     private final ConcurrentMap<String, Integer> matchIndex = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> stateMachineData = new ConcurrentHashMap<>();
     private final ConcurrentMap<Integer, CompletableFuture<Boolean>> pendingCommits = new ConcurrentHashMap<>();
+    
 
     public RaftNodeState(String nodeId) {
         this.nodeId = nodeId;
@@ -111,10 +112,11 @@ public class RaftNodeState {
         if (raftIndex == lastIncludedIndex) {
             return lastIncludedTerm;
         }
-
+        
         if (raftIndex < lastIncludedIndex) {
             return 0;
         }
+        
 
         int pos = toListPosition(raftIndex);
 

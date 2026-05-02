@@ -4,6 +4,8 @@ import com.raftDB.raft.model.RaftNode;
 import com.raftDB.raft.model.RaftNodeState;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
 import com.raftDB.raft.rpc.AppendEntriesResponse;
+import com.raftDB.raft.rpc.InstallSnapshotRequest;
+import com.raftDB.raft.rpc.InstallSnapshotResponse;
 import com.raftDB.raft.rpc.RaftServiceGrpc;
 import com.raftDB.raft.rpc.RequestVoteRequest;
 import com.raftDB.raft.rpc.RequestVoteResponse;
@@ -24,7 +26,6 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
         RaftNodeState state = raftNode.getState();
         raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
-
         boolean voteGranted = false;
         int currentTerm;
 
@@ -49,6 +50,8 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                     //grant vote and record voteFor
                     state.setVotedFor(request.getCandidateId());
                     voteGranted = true;
+                } else {
+                    System.out.println("Not up to date");
                 }
             }
 
@@ -90,16 +93,17 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 //Checks log consistency between receiver and leader. 
                 //Process the logs to the receiver and returns a successful response.
                 //Otherwise, return a unsuccessful response due to log inconsistency.
-                //TODO: We will need to store logs in local storage.
                 if(raftNode.checkLogConsistency(request.getPrevLogIndex(), request.getPrevLogTerm())){ 
                     raftNode.processLogEntries(request.getEntriesList(), request.getLeaderCommit());
                     success = true;
-
                     //store logs and state in local storage
                     raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
 
 
                 } else {
+                    System.out.println("No success");
+                    //System.out.println(request.getPrevLogIndex());
+                    System.out.println(request.getPrevLogTerm());
                     success = false;
                 }
 
@@ -111,6 +115,32 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
         AppendEntriesResponse response = AppendEntriesResponse.newBuilder()
                 .setTerm(currentTerm)
                 .setSuccess(success)
+                .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void installSnapshot(InstallSnapshotRequest request,
+                                 StreamObserver<InstallSnapshotResponse> responseObserver){
+        // leader sends snapshot data thru RPC Call
+        // node compares own latest index to that of Leader's snapshot (sent LastIncludedIndex)
+        // if snapshot is newer than node, discard entire log and install the snapshot
+        // else if snapshot index is somewhere in node's log, iterate through log index and delete any idx < snapshot index
+        // then, "install" the snapshot (Save to logstorage, update nodestate params)
+        RaftNodeState state = raftNode.getState();
+        boolean success = false;
+        int currentTerm = state.getCurrentTerm();
+        synchronized (state.getLock()) {
+            System.out.println("*************************");
+            System.out.println(request.getDataMap());
+            System.out.println("*************************");
+            
+        }
+        InstallSnapshotResponse response = InstallSnapshotResponse.newBuilder()
+                .setTerm(-1)
+                .setSuccess(false)
                 .build();
 
         responseObserver.onNext(response);
