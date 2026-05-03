@@ -202,7 +202,7 @@ public class RaftNode implements Serializable{
             System.out.println("Current PeerId: " + peerId);
             int lastLogIndex = state.getLog().size() - 1;
 
-            // workaround to stop infinite vote requests, feel free to change
+            // workaround to stop infinite vote request loop, feel free to change if you have a better solution
             if(state.getLastIncludedIndex() >= 0){
                 lastLogIndex += state.getLastIncludedIndex() + 1;
             }
@@ -271,7 +271,7 @@ public class RaftNode implements Serializable{
         
         
     }
-
+    // added snapshot creation logic here, exclusive to leader. Followers create snapshots in processLogEntries
     private void startHeartbeatLoop() {
         new Thread(() -> {
             while (true) {
@@ -495,6 +495,8 @@ public class RaftNode implements Serializable{
     * Set commit index to the min of the leader's commit index and the index of the last new entry.
     * TODO: Add logic to truncate local file if they are existing entries after the first new index.
     * TODO: Add logic to persist new log entries to local storage.
+    * 
+    * Moved snapshot creation from updateCommitIndex to here
     * @param - newEntries - List of all the new entries to append to the node's log
     * @param - leaderCommit - Commit index of leader node.
     */
@@ -714,7 +716,7 @@ public class RaftNode implements Serializable{
 
     /*
     * Method for waiting for the follower nodes to replicate the log entry and return back a response.
-    * If not enough nodes are able to reach consensus within 5 seconds, then the commit fails aand sends out an unsuccessful response.
+    * If not enough nodes are able to reach consensus within 5 seconds, then the commit fails and sends out an unsuccessful response.
     * @param index - the new entry log index.
     */
     public CompletableFuture<Boolean> waitForCommit(int index) {

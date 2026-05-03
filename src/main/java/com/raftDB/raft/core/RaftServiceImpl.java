@@ -164,6 +164,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 if(state.getLastApplied() < request.getLastSnapshotIndex()){
                     // Restart entire log if all of it is in the snapshot
                     List<LogEntry> freshLog = new ArrayList<LogEntry>();
+                    state.getLog().removeAll(state.getLog());
                     raftNode.save(currentTerm, votedFor, freshLog);
                 } else {
                     // Truncate whatever's in the snapshot and keep whatever's not
