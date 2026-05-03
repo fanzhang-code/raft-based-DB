@@ -1,14 +1,21 @@
 package com.raftDB.raft.core;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.raftDB.raft.model.RaftNode;
 import com.raftDB.raft.model.RaftNodeState;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
 import com.raftDB.raft.rpc.AppendEntriesResponse;
+import com.raftDB.raft.rpc.InstallSnapshotRequest;
+import com.raftDB.raft.rpc.InstallSnapshotResponse;
+import com.raftDB.raft.rpc.LogEntry;
 import com.raftDB.raft.rpc.RaftServiceGrpc;
 import com.raftDB.raft.rpc.RequestVoteRequest;
 import com.raftDB.raft.rpc.RequestVoteResponse;
 
 import io.grpc.stub.StreamObserver;
+//
 
 public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
@@ -24,7 +31,6 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
         RaftNodeState state = raftNode.getState();
         raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
-
         boolean voteGranted = false;
         int currentTerm;
 
@@ -49,6 +55,8 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                     //grant vote and record voteFor
                     state.setVotedFor(request.getCandidateId());
                     voteGranted = true;
+                } else {
+                    System.out.println("Not up to date");
                 }
             }
 
@@ -90,16 +98,17 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 //Checks log consistency between receiver and leader. 
                 //Process the logs to the receiver and returns a successful response.
                 //Otherwise, return a unsuccessful response due to log inconsistency.
-                //TODO: We will need to store logs in local storage.
                 if(raftNode.checkLogConsistency(request.getPrevLogIndex(), request.getPrevLogTerm())){ 
                     raftNode.processLogEntries(request.getEntriesList(), request.getLeaderCommit());
                     success = true;
-
                     //store logs and state in local storage
                     raftNode.save(state.getCurrentTerm(), state.getVotedFor(), state.getLog());
 
 
                 } else {
+                    System.out.println("No success");
+                    //System.out.println(request.getPrevLogIndex());
+                    //System.out.println(request.getPrevLogTerm());
                     success = false;
                 }
 
@@ -116,4 +125,65 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
         responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
+
+    @Override
+    public void installSnapshot(InstallSnapshotRequest request,
+                                 StreamObserver<InstallSnapshotResponse> responseObserver){
+
+        RaftNodeState state = raftNode.getState();
+        boolean success = false;
+        int currentTerm = state.getCurrentTerm();
+        synchronized (state.getLock()) {
+
+            // Don't take the snapshot if it's old
+            if(request.getTerm() < state.getCurrentTerm()){
+                success = false;
+            }
+            // Don't take the snapshot if a newer one already exists
+            else if(request.getLastSnapshotIndex() <= state.getLastIncludedIndex()){
+                success = false;
+            }
+            else {
+                
+                int lastSnapIdx = request.getLastSnapshotIndex();
+                int lastSnapTerm = request.getLastSnapshotTerm();
+                byte[] byteSnapshot = request.getData().toByteArray();
+                
+                //"Installing" the snapshot
+                state.setLastIncludedIndex(lastSnapIdx);
+                state.setCommitIndex(lastSnapIdx);
+                state.setLastApplied(lastSnapIdx);
+                state.setLastIncludedTerm(lastSnapTerm);
+                state.setCurrentTerm(lastSnapTerm);
+                raftNode.getStoredLogs().altSaveSnapshot(lastSnapIdx, lastSnapTerm, byteSnapshot);;
+                //
+
+                currentTerm = state.getCurrentTerm();
+                String votedFor = state.getVotedFor();
+                
+                if(state.getLastApplied() < request.getLastSnapshotIndex()){
+                    // Restart entire log if all of it is in the snapshot
+                    List<LogEntry> freshLog = new ArrayList<LogEntry>();
+                    state.getLog().removeAll(state.getLog());
+                    raftNode.save(currentTerm, votedFor, freshLog);
+                } else {
+                    // Truncate whatever's in the snapshot and keep whatever's not
+                    // Copied over from RaftNode without print statements
+                    state.getLog().removeIf(entry -> entry.getIndex() <= request.getLastSnapshotIndex());
+                    raftNode.save(currentTerm, votedFor, state.getLog());
+                }
+                success = true;
+            }
+        }
+        InstallSnapshotResponse response = InstallSnapshotResponse.newBuilder()
+            .setTerm(currentTerm)
+            .setSuccess(success)
+            .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+
+
 }

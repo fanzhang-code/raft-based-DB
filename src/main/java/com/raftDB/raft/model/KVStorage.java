@@ -2,13 +2,13 @@ package com.raftDB.raft.model;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
-import java.util.HashMap;
-import java.util.Map;
 
 
 public class KVStorage{
@@ -87,7 +87,6 @@ public class KVStorage{
     public void apply(String command){
         String[] parts = command.split(" ");    
         String action = parts[0].toUpperCase();
-
         if (action.equals("PUT") && parts.length == 3) {
             put(parts[1], parts[2]);
             System.out.println(String.format("DB: Applied PUT %s = %s", parts[1], parts[2]));
@@ -98,6 +97,9 @@ public class KVStorage{
         else if (action.equals("DELETE") && parts.length == 2) {
             delete(parts[1]);
             System.out.println(String.format("DB: Applied DELETE %s", parts[1]));
+        }
+        else {
+            System.out.println("???");
         }
     }
 }

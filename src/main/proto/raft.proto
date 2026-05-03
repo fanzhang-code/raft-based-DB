@@ -9,6 +9,7 @@ package raft;
 service RaftService {
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
   rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
 }
 
 message RequestVoteRequest {
@@ -46,4 +47,18 @@ message LogEntry {
 message ClientResponse {
   bool success = 1;   
   string message = 2; 
+}
+
+message InstallSnapshotRequest {
+  int32 term = 1;
+  string leaderId = 2;
+  int32 lastSnapshotIndex = 3;
+  int32 lastSnapshotTerm = 4;
+  bytes data = 5;
+
+}
+
+message InstallSnapshotResponse {
+  int32 term = 1;
+  bool success = 2;
 }
