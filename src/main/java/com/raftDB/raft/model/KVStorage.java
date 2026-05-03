@@ -2,11 +2,17 @@ package com.raftDB.raft.model;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+
+import com.raftDB.raft.config.MetricsManager;
+import com.codahale.metrics.Timer;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -16,16 +22,21 @@ public class KVStorage{
     RocksDB db;
     File dir;
     private final Map<String, String> memoryData = new HashMap<>();
+    private static Timer getTimer = MetricsManager.metricRegistry.timer("db.rocksdb.get.latency");
+    private static Timer putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
     
 
     // RocksDB storage for key-value pairs for each node
-    // Storage is created in /tmp/rocksdb/[nodeID]
+    // Storage is created in /tmp/rocksdb/[nodeID] for Mac and Linux and in %USERPROFILE%\AppData\Local\Temp for Windows
     public KVStorage(String nodeId){
 
         RocksDB.loadLibrary();
         Options options = new Options();
         options.setCreateIfMissing(true);
-        dir = new File("/tmp/rocksdb", nodeId);
+        String tempRoot = System.getProperty("java.io.tmpdir");
+        Path path = Paths.get(tempRoot, "rocksdb", nodeId);
+        dir = path.toFile();
+        // dir = new File("/tmp/rocksdb", nodeId);
 
         try {
             Files.createDirectories(dir.getParentFile().toPath());
@@ -35,7 +46,8 @@ public class KVStorage{
         } catch (IOException | RocksDBException e) {
             e.printStackTrace();
         }
-        System.out.println("Storage initialized in /tmp/rocksdb");
+        System.out.println("Storage initialized in " + path.toString());
+        // System.out.println("Storage initialized in /tmp/rocksdb");
     }
 
     //reads all KV pairs from DB and returns as a Map, put into SnapshotData
@@ -44,7 +56,7 @@ public class KVStorage{
     }
 
     public void put(String key, String value) {
-        try {
+        try (Timer.Context context = putTimer.time()) {
             db.put(key.getBytes(), value.getBytes());
             memoryData.put(key, value);
         } catch (RocksDBException e) {
@@ -53,7 +65,7 @@ public class KVStorage{
     }
 
     public String get(String key)  {
-        try {
+        try (Timer.Context context = getTimer.time()){
             byte[] value = db.get(key.getBytes());
             return value != null ? new String(value) : null;
         } catch (RocksDBException e) {
@@ -100,4 +112,15 @@ public class KVStorage{
             System.out.println(String.format("DB: Applied DELETE %s", parts[1]));
         }
     }
+
+    public void reRegisterStorageMetrics(){
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.put.latency")){
+            putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
+        }
+
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.get.latency")){
+            getTimer = MetricsManager.metricRegistry.timer("db.rocksdb.get.latency");
+        }        
+    }
+
 }

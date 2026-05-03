@@ -8,8 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.Map;
+// import java.util.Map;
 
+import com.raftDB.raft.config.MetricsManager;
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
@@ -28,6 +29,7 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 
+import com.codahale.metrics.Timer;
 
 
 public class RaftNode {
@@ -45,7 +47,10 @@ public class RaftNode {
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
     private static final int SNAPSHOT_THRESHOLD = 10;
-    private static final boolean LOG_COMPACTION_ENABLED = true;
+    private static final boolean LOG_COMPACTION_ENABLED = false; //Have a way to disable log compaction upon executing the program.
+    // private static final boolean LOG_COMPACTION_ENABLED = true;
+
+    private static Timer replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
 
     public RaftNode(NodeConfig config) {
         this.config = config;
@@ -430,57 +435,57 @@ public class RaftNode {
     */
     public void processLogEntries(List<LogEntry> newEntries, int leaderCommit){
         synchronized(state.getLock()){
-            List<LogEntry> log = state.getLog();
-            if(!newEntries.isEmpty()){
-                // Get first new entry index.
-                int firstNewIndex = newEntries.get(0).getIndex();
-                int nextIdxCompare = firstNewIndex;
-                int newEntriesIdx = 0;
+            try (Timer.Context context = replicationTimer.time()){
+                List<LogEntry> log = state.getLog();
+                if(!newEntries.isEmpty()){
+                    // Get first new entry index.
+                    // int firstNewIndex = newEntries.get(0).getIndex();
+                    // int nextIdxCompare = firstNewIndex;
+                    int newEntriesIdx = 0;
 
 
-                while (newEntriesIdx < newEntries.size()) {
-                    LogEntry newEntry = newEntries.get(newEntriesIdx);
-                    int raftIndex = newEntry.getIndex();
+                    while (newEntriesIdx < newEntries.size()) {
+                        LogEntry newEntry = newEntries.get(newEntriesIdx);
+                        int raftIndex = newEntry.getIndex();
 
-                    // If this entry is already included in snapshot, skip it
-                    if (raftIndex <= state.getLastIncludedIndex()) {
+                        // If this entry is already included in snapshot, skip it
+                        if (raftIndex <= state.getLastIncludedIndex()) {
+                            newEntriesIdx++;
+                            continue;
+                        }
+
+                        int pos = state.toListPosition(raftIndex);
+
+                        // If local log does not have this index yet, stop checking
+                        if (pos < 0 || pos >= log.size()) {
+                            break;
+                        }
+
+                        // If same index but different term, truncate from this position
+                        if (log.get(pos).getTerm() != newEntry.getTerm()) {
+                            System.out.println("Log conflict at Index " + raftIndex + ". Truncating log.");
+                            log.subList(pos, log.size()).clear();
+                            break;
+                        }
+
                         newEntriesIdx++;
-                        continue;
                     }
 
-                    int pos = state.toListPosition(raftIndex);
+                    //Append any new entries that are not in the node's log.
+                    if(newEntriesIdx < newEntries.size()){
+                        log.addAll(newEntries.subList(newEntriesIdx, newEntries.size()));
+                        
+                        //persist logs and current state to local storage
+                        save(state.getCurrentTerm(), state.getVotedFor(), log);
 
-                    // If local log does not have this index yet, stop checking
-                    if (pos < 0 || pos >= log.size()) {
-                        break;
-                    }
-
-                    // If same index but different term, truncate from this position
-                    if (log.get(pos).getTerm() != newEntry.getTerm()) {
-                        System.out.println("Log conflict at Index " + raftIndex + ". Truncating log.");
-                        log.subList(pos, log.size()).clear();
-                        break;
-                    }
-
-                    newEntriesIdx++;
+                    }    
                 }
-
-                //Append any new entries that are not in the node's log.
-                if(newEntriesIdx < newEntries.size()){
-                    log.addAll(newEntries.subList(newEntriesIdx, newEntries.size()));
-                     
-                    //TODO: Insert logic to persist new entries to disk.
-
-                    //persist logs and current state to local storage
-                    save(state.getCurrentTerm(), state.getVotedFor(), log);
-
-                }    
-            }
-            //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
-            if(leaderCommit > state.getCommitIndex()){
-                int lastLogIndex = state.getLastIncludedIndex() + log.size();
-                state.setCommitIndex(Math.min(leaderCommit, lastLogIndex));
-                applyToStateMachine(); 
+                //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
+                if(leaderCommit > state.getCommitIndex()){
+                    int lastLogIndex = state.getLastIncludedIndex() + log.size();
+                    state.setCommitIndex(Math.min(leaderCommit, lastLogIndex));
+                    applyToStateMachine(); 
+                }
             }
         }
     }
@@ -768,6 +773,14 @@ public class RaftNode {
                             ", new size = " + newSize
             );
         }
+    }
+
+    public void reRegisterNodeMetrics(){
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("raft.replication")){
+            replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
+        }
+
+        store.reRegisterStorageMetrics();
     }
 
 }
