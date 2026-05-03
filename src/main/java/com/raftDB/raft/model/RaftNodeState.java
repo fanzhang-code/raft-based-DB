@@ -20,6 +20,7 @@ public class RaftNodeState {
     private volatile int currentTerm = 0;
 
     private volatile String votedFor = null;
+    
 
     private final List<LogEntry> log = new ArrayList<>();
 
@@ -116,7 +117,6 @@ public class RaftNodeState {
         if (raftIndex < lastIncludedIndex) {
             return 0;
         }
-        
 
         int pos = toListPosition(raftIndex);
 
@@ -174,4 +174,6 @@ public class RaftNodeState {
     public ConcurrentMap<Integer, CompletableFuture<Boolean>> getPendingCommits() {
         return pendingCommits;
     }
+
+
 }

@@ -54,7 +54,7 @@ message InstallSnapshotRequest {
   string leaderId = 2;
   int32 lastSnapshotIndex = 3;
   int32 lastSnapshotTerm = 4;
-  map<string, string> data = 5;
+  bytes data = 5;
 
 }
 

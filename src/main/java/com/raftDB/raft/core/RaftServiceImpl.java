@@ -1,16 +1,21 @@
 package com.raftDB.raft.core;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.raftDB.raft.model.RaftNode;
 import com.raftDB.raft.model.RaftNodeState;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
 import com.raftDB.raft.rpc.AppendEntriesResponse;
 import com.raftDB.raft.rpc.InstallSnapshotRequest;
 import com.raftDB.raft.rpc.InstallSnapshotResponse;
+import com.raftDB.raft.rpc.LogEntry;
 import com.raftDB.raft.rpc.RaftServiceGrpc;
 import com.raftDB.raft.rpc.RequestVoteRequest;
 import com.raftDB.raft.rpc.RequestVoteResponse;
 
 import io.grpc.stub.StreamObserver;
+//
 
 public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
 
@@ -103,7 +108,7 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
                 } else {
                     System.out.println("No success");
                     //System.out.println(request.getPrevLogIndex());
-                    System.out.println(request.getPrevLogTerm());
+                    //System.out.println(request.getPrevLogTerm());
                     success = false;
                 }
 
@@ -124,26 +129,60 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
     @Override
     public void installSnapshot(InstallSnapshotRequest request,
                                  StreamObserver<InstallSnapshotResponse> responseObserver){
-        // leader sends snapshot data thru RPC Call
-        // node compares own latest index to that of Leader's snapshot (sent LastIncludedIndex)
-        // if snapshot is newer than node, discard entire log and install the snapshot
-        // else if snapshot index is somewhere in node's log, iterate through log index and delete any idx < snapshot index
-        // then, "install" the snapshot (Save to logstorage, update nodestate params)
+
         RaftNodeState state = raftNode.getState();
         boolean success = false;
         int currentTerm = state.getCurrentTerm();
         synchronized (state.getLock()) {
-            System.out.println("*************************");
-            System.out.println(request.getDataMap());
-            System.out.println("*************************");
-            
+
+            // Don't take the snapshot if it's old
+            if(request.getTerm() < state.getCurrentTerm()){
+                success = false;
+            }
+            // Don't take the snapshot if a newer one already exists
+            else if(request.getLastSnapshotIndex() <= state.getLastIncludedIndex()){
+                success = false;
+            }
+            else {
+                
+                int lastSnapIdx = request.getLastSnapshotIndex();
+                int lastSnapTerm = request.getLastSnapshotTerm();
+                byte[] byteSnapshot = request.getData().toByteArray();
+                
+                //"Installing" the snapshot
+                state.setLastIncludedIndex(lastSnapIdx);
+                state.setCommitIndex(lastSnapIdx);
+                state.setLastApplied(lastSnapIdx);
+                state.setLastIncludedTerm(lastSnapTerm);
+                state.setCurrentTerm(lastSnapTerm);
+                raftNode.getStoredLogs().altSaveSnapshot(lastSnapIdx, lastSnapTerm, byteSnapshot);;
+                //
+
+                currentTerm = state.getCurrentTerm();
+                String votedFor = state.getVotedFor();
+                
+                if(state.getLastApplied() < request.getLastSnapshotIndex()){
+                    // Restart entire log if all of it is in the snapshot
+                    List<LogEntry> freshLog = new ArrayList<LogEntry>();
+                    raftNode.save(currentTerm, votedFor, freshLog);
+                } else {
+                    // Truncate whatever's in the snapshot and keep whatever's not
+                    // Copied over from RaftNode without print statements
+                    state.getLog().removeIf(entry -> entry.getIndex() <= request.getLastSnapshotIndex());
+                    raftNode.save(currentTerm, votedFor, state.getLog());
+                }
+                success = true;
+            }
         }
         InstallSnapshotResponse response = InstallSnapshotResponse.newBuilder()
-                .setTerm(-1)
-                .setSuccess(false)
-                .build();
+            .setTerm(currentTerm)
+            .setSuccess(success)
+            .build();
 
         responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
+
+
+
 }

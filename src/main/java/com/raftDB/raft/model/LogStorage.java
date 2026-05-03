@@ -128,12 +128,13 @@ public class LogStorage implements Serializable{
         ObjectInputStream ois = new ObjectInputStream(bis);
         return(SnapshotData) ois.readObject();
     }
-    
+
     public void saveSnapshot(int lastIncludedIndex, int lastIncludedTerm, Map<String, String> data) {
         SnapshotData snapshot = new SnapshotData(lastIncludedIndex, lastIncludedTerm, data);
 
         try {
             db.put("snapshot".getBytes(), serializeSnapshot(snapshot));
+            //db.put("snapshot".getBytes(), serializeSnapData(data));
             db.put("lastIncludedIndex".getBytes(), String.valueOf(lastIncludedIndex).getBytes());
             db.put("lastIncludedTerm".getBytes(), String.valueOf(lastIncludedTerm).getBytes());
 
@@ -142,4 +143,28 @@ public class LogStorage implements Serializable{
             e.printStackTrace();
         }
     }
+
+    // separate version of saveSnapshot used in RaftServiceImpl to avoid serializeSnapshot call
+    // was having issues with java.io.NotSerializableException when attempting to call saveSnapshot in RaftServiceImpl.java 
+    public void altSaveSnapshot(int lastIncludedIndex, int lastIncludedTerm, byte[] data){
+        try {
+            db.put("snapshot".getBytes(), data);
+            db.put("lastIncludedIndex".getBytes(), String.valueOf(lastIncludedIndex).getBytes());
+            db.put("lastIncludedTerm".getBytes(), String.valueOf(lastIncludedTerm).getBytes());
+
+            System.out.println("Snapshot saved up to index " + lastIncludedIndex);
+        } catch (RocksDBException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    // public version of serializeSnapshot so RaftNode can serialize the snapshot instead of RaftServiceImpl
+    public byte[] pubSerializeSnapshot(SnapshotData snapshot) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(snapshot);
+        return bos.toByteArray();
+    }
+
+
 }

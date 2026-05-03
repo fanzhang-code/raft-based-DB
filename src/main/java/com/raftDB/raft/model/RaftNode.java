@@ -1,6 +1,7 @@
 package com.raftDB.raft.model;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -9,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import com.google.protobuf.ByteString;
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
@@ -31,7 +33,7 @@ import io.grpc.stub.StreamObserver;
 
 
 
-public class RaftNode {
+public class RaftNode implements Serializable{
 
     private final NodeConfig config;
     private final RaftNodeState state;
@@ -66,7 +68,8 @@ public class RaftNode {
             commitIdx = logStore.getSnapshot().getLastIncludedIndex();
             state.setLastIncludedIndex(commitIdx);
             state.setLastIncludedTerm(logStore.getSnapshot().getLastIncludedTerm()); 
-            System.out.println("LastInclIdx: " + commitIdx);
+            //System.out.println("LastInclIdx: " + commitIdx);
+            System.out.println("Snapshot found");
         }
 
         System.out.println(oldLog);
@@ -78,7 +81,7 @@ public class RaftNode {
             state.setLastApplied(commitIdx);
             System.out.println("Previous state loaded from disk:");
             
-        } else {
+        } else if (oldLog.isEmpty() && logStore.getSnapshot() == null){
             System.out.println("No previous state found");
         }
         
@@ -198,9 +201,12 @@ public class RaftNode {
             String peerId = entry.getKey();
             System.out.println("Current PeerId: " + peerId);
             int lastLogIndex = state.getLog().size() - 1;
-            //Test
-            lastLogIndex += state.getLastIncludedIndex() + 1;
-            //Test
+
+            // workaround to stop infinite vote requests, feel free to change
+            if(state.getLastIncludedIndex() >= 0){
+                lastLogIndex += state.getLastIncludedIndex() + 1;
+            }
+            
             RaftServiceGrpc.RaftServiceBlockingStub stub = entry.getValue();
 
             RequestVoteRequest request = RequestVoteRequest.newBuilder()
@@ -298,35 +304,34 @@ public class RaftNode {
                                 prevLogTerm = state.getTermAt(prevLogIndex);
                             }
                             //If follower’s nextIndex points to a log that the leader already compacted, the leader cannot send normal AppendEntries
-                            //if (prevLogIndex > state.getLastIncludedIndex()
-                            //if (nextIdx > state.getLastIncludedIndex() && state.getTermAt(prevLogIndex) == -1) {
-                            if(nextIdx <= state.getLastIncludedIndex() ){
-                                System.out.println("Cannot find prevLogIndex " + prevLogIndex +
-                                        " for peer " + peerId + ". Need snapshot install later.");
-                                System.out.println("Req: ");
-                                System.out.println("Current Term: " + state.getCurrentTerm());
-                                System.out.println("Leader ID: " + state.getNodeId());
-                                System.out.println("Last Snapshot Index: " + logStore.getSnapshot().getLastIncludedIndex());
-                                System.out.println("Last Snapshot Term: " + logStore.getSnapshot().getLastIncludedTerm());
-                                System.out.println("Snapshot Data" + logStore.getSnapshot().getData());
-                                System.out.println();
-                                /*
-                                InstallSnapshotRequest installReq = InstallSnapshotRequest.newBuilder()
-                                    .setTerm(state.getCurrentTerm())
-                                    .setLeaderId(config.getNodeId())
-                                    .setLastLogIndex(logStore.getSnapshot().getLastIncludedIndex())
-                                    .setLastLogTerm(logStore.getSnapshot().getLastIncludedTerm())
-                                    
-                                    .build();
-                                */
+                            
+                            if(nextIdx <= state.getLastIncludedIndex()){
+
+                                // *** Debugging print statements ***
+                                //System.out.println("Cannot find prevLogIndex " + prevLogIndex + " for peer " + peerId + ". Need snapshot install.");
+                                //System.out.println("Req: ");
+                                //System.out.println("Current Term: " + state.getCurrentTerm());
+                                //System.out.println("Leader ID: " + state.getNodeId());
+                                //System.out.println("Last Snapshot Index: " + logStore.getSnapshot().getLastIncludedIndex());
+                                //System.out.println("Last Snapshot Term: " + logStore.getSnapshot().getLastIncludedTerm());
+                                //System.out.println("Snapshot Data: " + logStore.getSnapshot().getData());
+                                // ***********************************
+
+
+                                //Had issues calling serializeSnapshot from RaftServiceImpl, so serialized it here instead
+                                byte[] snapShotBytes = logStore.pubSerializeSnapshot(logStore.getSnapshot());
+                                ByteString bs = ByteString.copyFrom(snapShotBytes);
+                                
+                                //InstallSnapshotRPC
                                 InstallSnapshotRequest installReq = InstallSnapshotRequest.newBuilder()
                                     .setTerm(state.getCurrentTerm())
                                     .setLeaderId(config.getNodeId())
                                     .setLastSnapshotIndex(logStore.getSnapshot().getLastIncludedIndex())
                                     .setLastSnapshotTerm(logStore.getSnapshot().getLastIncludedTerm())
-                                    .putAllData(logStore.getSnapshot().getData())
+                                    .setData(bs)
                                     .build();
-                                    
+
+                                // try/catch mostly copied from AppendEntriesRPC
                                 try {
                                     InstallSnapshotResponse response = stub.withDeadlineAfter(50, TimeUnit.MILLISECONDS).installSnapshot(installReq);
                                     
@@ -407,7 +412,8 @@ public class RaftNode {
                         } catch (Exception e) {
                             System.out.println("Failed heartbeat to " + peerId + "with reason given: " + e.getMessage());
                         }
-                    }//Snapshot?
+                    }
+                    // Separate snapshot for leader after followers are done to avoid case where one node shuts down after 1st snapshot
                     if (state.getLastApplied() - state.getLastIncludedIndex() >= SNAPSHOT_THRESHOLD && state.getRole() == NodeRole.LEADER) {
                         maybeCreateSnapshot();
 
@@ -431,12 +437,14 @@ public class RaftNode {
         synchronized(state.getLock()){
             int myLastLogIndex = state.getLastIncludedIndex() + state.getLog().size();
             int myLastLogTerm = state.getTermAt(myLastLogIndex);
+            /*
+            //More debugging Print Statements
             System.out.println("+++++++++++++++++++++++++");
             System.out.println("Checking if up to date");
             System.out.println("Prev Log Idx" + myLastLogIndex);
             System.out.println("Phys Log Idx" + lastLogIndex);
             System.out.println("+++++++++++++++++++++++++");
-
+            */
 
             if (lastLogTerm != myLastLogTerm) {
                 return lastLogTerm > myLastLogTerm;
@@ -492,7 +500,6 @@ public class RaftNode {
     */
     public void processLogEntries(List<LogEntry> newEntries, int leaderCommit){
         boolean shouldSnapshot = false;
-
         synchronized(state.getLock()){
             List<LogEntry> log = state.getLog();
             if(!newEntries.isEmpty()){
@@ -533,8 +540,6 @@ public class RaftNode {
                 //Append any new entries that are not in the node's log.
                 if(newEntriesIdx < newEntries.size()){
                     log.addAll(newEntries.subList(newEntriesIdx, newEntries.size()));
-                     
-                    //TODO: Insert logic to persist new entries to disk.
 
                     //persist logs and current state to local storage
                     save(state.getCurrentTerm(), state.getVotedFor(), log);
@@ -550,6 +555,8 @@ public class RaftNode {
                     shouldSnapshot = true;
                 }
             }
+
+            //Create Snapshot for follower nodes
             if (shouldSnapshot) {
                 maybeCreateSnapshot();
             }
@@ -564,6 +571,7 @@ public class RaftNode {
     * 
     */
     public void applyToStateMachine(){
+        //putting maybeCreateSnapshot here was causing one of the nodes to freeze up after snapshot creation.
         //boolean shouldSnapshot = false;
         synchronized(state.getLock()){
             List<LogEntry> log = state.getLog();
@@ -572,7 +580,6 @@ public class RaftNode {
 
             //persist logs and current state to local storage
             save(state.getCurrentTerm(), state.getVotedFor(), log); 
-
 
             //Keep incrementing last applied index as long as the commitIndex is greater than the last applied index. 
             //Apply the logs of the last applied index to the state matchine.
@@ -599,7 +606,6 @@ public class RaftNode {
                 //TODO: Remove these statements as these are just only meant for testing log replication. 
                 //TODO: Eventually, we will need to call the KV-store database to execute those commands.
                 String[] parts = command.split(" ");    
-                //String action = parts[0].toUpperCase();
                 
                 // Call KV-store Database to execute command
                 store.apply(command);
@@ -760,6 +766,11 @@ public class RaftNode {
         }
     }
 
+    public void saveSnap(int lastApplied, int latestTerm, Map<String, String> snapData){
+        synchronized(state.getLock()){
+            logStore.saveSnapshot(lastApplied, latestTerm, snapData);
+        }
+    }
     /*
      Creates a snapshot of the current state machine (KV store) if enough new logs have been applied since the last snapshot.
      */
@@ -779,7 +790,7 @@ public class RaftNode {
 
             //Only create snapshot when enough new logs have been applied
             if (lastApplied - state.getLastIncludedIndex() < SNAPSHOT_THRESHOLD) {
-                System.out.println("No need");
+                //System.out.println("No need");
                 return;
             }
 
@@ -794,7 +805,6 @@ public class RaftNode {
 
             state.setLastIncludedIndex(lastIncludedIndex);
             state.setLastIncludedTerm(lastIncludedTerm);
-            
 
             save(state.getCurrentTerm(), state.getVotedFor(), truncLog); //save the truncated log
 
@@ -825,6 +835,10 @@ public class RaftNode {
             return log;
             
         }
+    }
+
+    public LogStorage getStoredLogs(){
+        return this.logStore;
     }
 
 }
