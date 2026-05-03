@@ -1,0 +1,384 @@
+Log Compaction
+
+Node 1 (Follower):
+5/3/26, 2:02:45 PM =============================================================
+
+-- Timers ----------------------------------------------------------------------
+db.rocksdb.get.latency
+             count = 72
+         mean rate = 0.24 calls/second
+     1-minute rate = 0.92 calls/second
+     5-minute rate = 0.23 calls/second
+    15-minute rate = 0.08 calls/second
+               min = 0.01 milliseconds
+               max = 0.09 milliseconds
+              mean = 0.03 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.03 milliseconds
+              75% <= 0.04 milliseconds
+              95% <= 0.04 milliseconds
+              98% <= 0.06 milliseconds
+              99% <= 0.09 milliseconds
+            99.9% <= 0.09 milliseconds
+db.rocksdb.put.latency
+             count = 1062
+         mean rate = 3.54 calls/second
+     1-minute rate = 2.89 calls/second
+     5-minute rate = 3.57 calls/second
+    15-minute rate = 3.72 calls/second
+               min = 0.01 milliseconds
+               max = 0.18 milliseconds
+              mean = 0.04 milliseconds
+            stddev = 0.02 milliseconds
+            median = 0.05 milliseconds
+              75% <= 0.06 milliseconds
+              95% <= 0.07 milliseconds
+              98% <= 0.09 milliseconds
+              99% <= 0.10 milliseconds
+            99.9% <= 0.15 milliseconds
+raft.replication
+             count = 3401
+         mean rate = 11.34 calls/second
+     1-minute rate = 11.43 calls/second
+     5-minute rate = 11.30 calls/second
+    15-minute rate = 11.24 calls/second
+               min = 0.00 milliseconds
+               max = 3.63 milliseconds
+              mean = 0.20 milliseconds
+            stddev = 0.40 milliseconds
+            median = 0.00 milliseconds
+              75% <= 0.32 milliseconds
+              95% <= 0.72 milliseconds
+              98% <= 1.78 milliseconds
+              99% <= 2.14 milliseconds
+            99.9% <= 3.63 milliseconds
+
+Node 2 (Follower):
+5/3/26, 2:02:45 PM =============================================================
+
+-- Timers ----------------------------------------------------------------------
+db.rocksdb.get.latency
+             count = 73
+         mean rate = 0.24 calls/second
+     1-minute rate = 0.92 calls/second
+     5-minute rate = 0.23 calls/second
+    15-minute rate = 0.08 calls/second
+               min = 0.01 milliseconds
+               max = 0.05 milliseconds
+              mean = 0.03 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.04 milliseconds
+              75% <= 0.04 milliseconds
+              95% <= 0.05 milliseconds
+              98% <= 0.05 milliseconds
+              99% <= 0.05 milliseconds
+            99.9% <= 0.05 milliseconds
+db.rocksdb.put.latency
+             count = 1061
+         mean rate = 3.54 calls/second
+     1-minute rate = 2.88 calls/second
+     5-minute rate = 3.56 calls/second
+    15-minute rate = 3.72 calls/second
+               min = 0.01 milliseconds
+               max = 0.57 milliseconds
+              mean = 0.05 milliseconds
+            stddev = 0.03 milliseconds
+            median = 0.06 milliseconds
+              75% <= 0.07 milliseconds
+              95% <= 0.09 milliseconds
+              98% <= 0.11 milliseconds
+              99% <= 0.15 milliseconds
+            99.9% <= 0.24 milliseconds
+raft.replication
+             count = 3402
+         mean rate = 11.34 calls/second
+     1-minute rate = 11.42 calls/second
+     5-minute rate = 11.37 calls/second
+    15-minute rate = 11.38 calls/second
+               min = 0.00 milliseconds
+               max = 3.80 milliseconds
+              mean = 0.29 milliseconds
+            stddev = 0.41 milliseconds
+            median = 0.24 milliseconds
+              75% <= 0.41 milliseconds
+              95% <= 0.70 milliseconds
+              98% <= 2.12 milliseconds
+              99% <= 2.48 milliseconds
+            99.9% <= 3.80 milliseconds
+
+Node 3 (Leader):
+db.rocksdb.get.latency
+             count = 73
+         mean rate = 0.24 calls/second
+     1-minute rate = 0.93 calls/second
+     5-minute rate = 0.23 calls/second
+    15-minute rate = 0.08 calls/second
+               min = 0.01 milliseconds
+               max = 0.06 milliseconds
+              mean = 0.03 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.03 milliseconds
+              75% <= 0.04 milliseconds
+              95% <= 0.05 milliseconds
+              98% <= 0.05 milliseconds
+              99% <= 0.06 milliseconds
+            99.9% <= 0.06 milliseconds
+db.rocksdb.put.latency
+             count = 1061
+         mean rate = 3.54 calls/second
+     1-minute rate = 2.87 calls/second
+     5-minute rate = 3.56 calls/second
+    15-minute rate = 3.72 calls/second
+               min = 0.01 milliseconds
+               max = 0.17 milliseconds
+              mean = 0.05 milliseconds
+            stddev = 0.02 milliseconds
+            median = 0.05 milliseconds
+              75% <= 0.06 milliseconds
+              95% <= 0.07 milliseconds
+              98% <= 0.08 milliseconds
+              99% <= 0.14 milliseconds
+            99.9% <= 0.16 milliseconds
+raft.client.get
+             count = 73
+         mean rate = 0.24 calls/second
+     1-minute rate = 0.92 calls/second
+     5-minute rate = 0.23 calls/second
+    15-minute rate = 0.08 calls/second
+               min = 252.13 milliseconds
+               max = 273.84 milliseconds
+              mean = 262.78 milliseconds
+            stddev = 4.26 milliseconds
+            median = 262.09 milliseconds
+              75% <= 265.77 milliseconds
+              95% <= 270.67 milliseconds
+              98% <= 272.35 milliseconds
+              99% <= 273.84 milliseconds
+            99.9% <= 273.84 milliseconds
+raft.client.put
+             count = 1061
+         mean rate = 3.54 calls/second
+     1-minute rate = 2.89 calls/second
+     5-minute rate = 3.49 calls/second
+    15-minute rate = 3.57 calls/second
+               min = 250.24 milliseconds
+               max = 280.02 milliseconds
+              mean = 262.68 milliseconds
+            stddev = 4.16 milliseconds
+            median = 262.51 milliseconds
+              75% <= 265.40 milliseconds
+              95% <= 269.97 milliseconds
+              98% <= 271.86 milliseconds
+              99% <= 272.50 milliseconds
+            99.9% <= 275.06 milliseconds
+raft.replication
+             count = 0
+         mean rate = 0.00 calls/second
+     1-minute rate = 0.00 calls/second
+     5-minute rate = 0.00 calls/second
+    15-minute rate = 0.00 calls/second
+               min = 0.00 milliseconds
+               max = 0.00 milliseconds
+              mean = 0.00 milliseconds
+            stddev = 0.00 milliseconds
+            median = 0.00 milliseconds
+              75% <= 0.00 milliseconds
+              95% <= 0.00 milliseconds
+              98% <= 0.00 milliseconds
+              99% <= 0.00 milliseconds
+            99.9% <= 0.00 milliseconds
+
+--------------------------------------------------------------------------------
+
+No Log Compaction:
+
+Node 1 (Leader):
+5/3/26, 2:15:15 PM =============================================================
+
+-- Timers ----------------------------------------------------------------------
+db.rocksdb.get.latency
+             count = 49
+         mean rate = 0.16 calls/second
+     1-minute rate = 0.66 calls/second
+     5-minute rate = 0.16 calls/second
+    15-minute rate = 0.05 calls/second
+               min = 0.01 milliseconds
+               max = 0.04 milliseconds
+              mean = 0.02 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.02 milliseconds
+              75% <= 0.04 milliseconds
+              95% <= 0.04 milliseconds
+              98% <= 0.04 milliseconds
+              99% <= 0.04 milliseconds
+            99.9% <= 0.04 milliseconds
+db.rocksdb.put.latency
+             count = 1049
+         mean rate = 3.50 calls/second
+     1-minute rate = 2.97 calls/second
+     5-minute rate = 3.55 calls/second
+    15-minute rate = 3.71 calls/second
+               min = 0.01 milliseconds
+               max = 0.26 milliseconds
+              mean = 0.05 milliseconds
+            stddev = 0.03 milliseconds
+            median = 0.05 milliseconds
+              75% <= 0.07 milliseconds
+              95% <= 0.10 milliseconds
+              98% <= 0.10 milliseconds
+              99% <= 0.12 milliseconds
+            99.9% <= 0.14 milliseconds
+raft.client.get
+             count = 49
+         mean rate = 0.16 calls/second
+     1-minute rate = 0.65 calls/second
+     5-minute rate = 0.15 calls/second
+    15-minute rate = 0.05 calls/second
+               min = 259.29 milliseconds
+               max = 299.50 milliseconds
+              mean = 276.28 milliseconds
+            stddev = 5.49 milliseconds
+            median = 276.55 milliseconds
+              75% <= 279.09 milliseconds
+              95% <= 284.16 milliseconds
+              98% <= 284.72 milliseconds
+              99% <= 299.50 milliseconds
+            99.9% <= 299.50 milliseconds
+raft.client.put
+             count = 1049
+         mean rate = 3.50 calls/second
+     1-minute rate = 2.98 calls/second
+     5-minute rate = 3.48 calls/second
+    15-minute rate = 3.56 calls/second
+               min = 250.73 milliseconds
+               max = 295.83 milliseconds
+              mean = 275.10 milliseconds
+            stddev = 4.74 milliseconds
+            median = 275.62 milliseconds
+              75% <= 278.56 milliseconds
+              95% <= 281.33 milliseconds
+              98% <= 284.12 milliseconds
+              99% <= 285.37 milliseconds
+            99.9% <= 295.83 milliseconds
+raft.replication
+             count = 0
+         mean rate = 0.00 calls/second
+     1-minute rate = 0.00 calls/second
+     5-minute rate = 0.00 calls/second
+    15-minute rate = 0.00 calls/second
+               min = 0.00 milliseconds
+               max = 0.00 milliseconds
+              mean = 0.00 milliseconds
+            stddev = 0.00 milliseconds
+            median = 0.00 milliseconds
+              75% <= 0.00 milliseconds
+              95% <= 0.00 milliseconds
+              98% <= 0.00 milliseconds
+              99% <= 0.00 milliseconds
+            99.9% <= 0.00 milliseconds
+
+Node 2 (Follower):
+5/3/26, 2:15:15 PM =============================================================
+
+-- Timers ----------------------------------------------------------------------
+db.rocksdb.get.latency
+             count = 48
+         mean rate = 0.16 calls/second
+     1-minute rate = 0.65 calls/second
+     5-minute rate = 0.15 calls/second
+    15-minute rate = 0.05 calls/second
+               min = 0.01 milliseconds
+               max = 0.06 milliseconds
+              mean = 0.04 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.04 milliseconds
+              75% <= 0.04 milliseconds
+              95% <= 0.05 milliseconds
+              98% <= 0.05 milliseconds
+              99% <= 0.06 milliseconds
+            99.9% <= 0.06 milliseconds
+db.rocksdb.put.latency
+             count = 1050
+         mean rate = 3.50 calls/second
+     1-minute rate = 2.98 calls/second
+     5-minute rate = 3.48 calls/second
+    15-minute rate = 3.56 calls/second
+               min = 0.01 milliseconds
+               max = 0.29 milliseconds
+              mean = 0.08 milliseconds
+            stddev = 0.02 milliseconds
+            median = 0.08 milliseconds
+              75% <= 0.09 milliseconds
+              95% <= 0.10 milliseconds
+              98% <= 0.12 milliseconds
+              99% <= 0.16 milliseconds
+            99.9% <= 0.21 milliseconds
+raft.replication
+             count = 3294
+         mean rate = 10.98 calls/second
+     1-minute rate = 10.90 calls/second
+     5-minute rate = 10.97 calls/second
+    15-minute rate = 10.99 calls/second
+               min = 0.00 milliseconds
+               max = 4.40 milliseconds
+              mean = 1.38 milliseconds
+            stddev = 1.08 milliseconds
+            median = 1.76 milliseconds
+              75% <= 2.31 milliseconds
+              95% <= 2.67 milliseconds
+              98% <= 2.85 milliseconds
+              99% <= 3.28 milliseconds
+            99.9% <= 3.83 milliseconds
+
+Node 3 (Follower):
+5/3/26, 2:15:15 PM =============================================================
+
+-- Timers ----------------------------------------------------------------------
+db.rocksdb.get.latency
+             count = 49
+         mean rate = 0.16 calls/second
+     1-minute rate = 0.66 calls/second
+     5-minute rate = 0.16 calls/second
+    15-minute rate = 0.05 calls/second
+               min = 0.01 milliseconds
+               max = 0.04 milliseconds
+              mean = 0.02 milliseconds
+            stddev = 0.01 milliseconds
+            median = 0.02 milliseconds
+              75% <= 0.03 milliseconds
+              95% <= 0.04 milliseconds
+              98% <= 0.04 milliseconds
+              99% <= 0.04 milliseconds
+            99.9% <= 0.04 milliseconds
+db.rocksdb.put.latency
+             count = 1049
+         mean rate = 3.50 calls/second
+     1-minute rate = 2.97 calls/second
+     5-minute rate = 3.55 calls/second
+    15-minute rate = 3.71 calls/second
+               min = 0.01 milliseconds
+               max = 0.19 milliseconds
+              mean = 0.04 milliseconds
+            stddev = 0.03 milliseconds
+            median = 0.02 milliseconds
+              75% <= 0.07 milliseconds
+              95% <= 0.09 milliseconds
+              98% <= 0.09 milliseconds
+              99% <= 0.11 milliseconds
+            99.9% <= 0.16 milliseconds
+raft.replication
+             count = 3294
+         mean rate = 10.98 calls/second
+     1-minute rate = 10.89 calls/second
+     5-minute rate = 10.97 calls/second
+    15-minute rate = 10.99 calls/second
+               min = 0.00 milliseconds
+               max = 13.15 milliseconds
+              mean = 0.70 milliseconds
+            stddev = 1.12 milliseconds
+            median = 0.00 milliseconds
+              75% <= 1.63 milliseconds
+              95% <= 2.64 milliseconds
+              98% <= 2.85 milliseconds
+              99% <= 3.17 milliseconds
+            99.9% <= 13.15 milliseconds

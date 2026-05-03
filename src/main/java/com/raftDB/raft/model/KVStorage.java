@@ -25,16 +25,13 @@ public class KVStorage{
     private static Timer putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
 
     // RocksDB storage for key-value pairs for each node
-    // Storage is created in /tmp/rocksdb/[nodeID] for Mac and Linux and in %USERPROFILE%\AppData\Local\Temp\rocksdb\[nodeID] for Windows
+    // Storage is created in /tmp/rocksdb/[nodeID].
     public KVStorage(String nodeId){
 
         RocksDB.loadLibrary();
         Options options = new Options();
-        options.setCreateIfMissing(true);
-        String tempRoot = System.getProperty("java.io.tmpdir");
-        Path path = Paths.get(tempRoot, "rocksdb", nodeId);
-        dir = path.toFile();        
-        // dir = new File("/tmp/rocksdb", nodeId);
+        options.setCreateIfMissing(true);    
+        dir = new File("/tmp/rocksdb", nodeId);
 
         try {
             Files.createDirectories(dir.getParentFile().toPath());
@@ -44,8 +41,7 @@ public class KVStorage{
         } catch (IOException | RocksDBException e) {
             e.printStackTrace();
         }
-        System.out.println("Storage initialized in " + path.toString());
-        // System.out.println("Storage initialized in /tmp/rocksdb");
+        System.out.println("Storage initialized in /tmp/rocksdb");
     }
 
     //reads all KV pairs from DB and returns as a Map, put into SnapshotData
@@ -113,6 +109,9 @@ public class KVStorage{
         }
     }
 
+    /*
+    * Method to rergister all storage metrics after the warm-up phase finishes.
+    */
     public void reRegisterStorageMetrics(){
 
         if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.put.latency")){

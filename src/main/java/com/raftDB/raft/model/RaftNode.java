@@ -40,23 +40,23 @@ public class RaftNode implements Serializable{
     private final RaftNodeState state;
     private final KVStorage store;
     private final LogStorage logStore;
+    private final boolean logCompactionFlag;
 
     private Server server;
 
-    //private final Map<String, ManagedChannel> peerChannels = new HashMap<>();
     private final Map<String, RaftServiceGrpc.RaftServiceBlockingStub> peerStubs = new HashMap<>();
 
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
     private static final int SNAPSHOT_THRESHOLD = 10;
-    private static final boolean LOG_COMPACTION_ENABLED = true;
     private static Timer replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
 
     
     public RaftNode(NodeConfig config) {
         this.config = config;
         this.state = new RaftNodeState(config.getNodeId());
-
+        this.logCompactionFlag = config.getLogCompactionFlag();
+        System.out.println("Log Compaction Enabled: " + logCompactionFlag);
         this.store = new KVStorage(config.getNodeId());
         this.logStore = new LogStorage(config.getNodeId());
 
@@ -783,7 +783,7 @@ public class RaftNode implements Serializable{
      */
 
     private void maybeCreateSnapshot() {
-        if (!LOG_COMPACTION_ENABLED) {
+        if (!logCompactionFlag) {
             // System.out.println("No log compaction");
             return;
         }
@@ -848,6 +848,9 @@ public class RaftNode implements Serializable{
         return this.logStore;
     }
 
+    /*
+    * Method to rergister all metrics after the warm-up phase finishes.
+    */
   public void reRegisterNodeMetrics(){
         if(!MetricsManager.metricRegistry.getMetrics().containsKey("raft.replication")){
             replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
