@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.google.protobuf.ByteString;
+import com.raftDB.raft.config.MetricsManager;
 import com.raftDB.raft.config.NodeConfig;
 import com.raftDB.raft.core.RaftServiceImpl;
 import com.raftDB.raft.rpc.AppendEntriesRequest;
@@ -30,7 +31,7 @@ import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-
+import com.codahale.metrics.Timer;
 
 
 public class RaftNode implements Serializable{
@@ -47,9 +48,11 @@ public class RaftNode implements Serializable{
 
     private volatile long lastHeartbeatTime = System.currentTimeMillis();
     private final int electionTimeoutMs = 150 + (int)(Math.random() * 150);
-    private static final int SNAPSHOT_THRESHOLD = 5;
+    private static final int SNAPSHOT_THRESHOLD = 10;
     private static final boolean LOG_COMPACTION_ENABLED = true;
+    private static Timer replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
 
+    
     public RaftNode(NodeConfig config) {
         this.config = config;
         this.state = new RaftNodeState(config.getNodeId());
@@ -240,7 +243,7 @@ public class RaftNode implements Serializable{
                 }
             } catch (StatusRuntimeException e){
                 if(e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED){
-                    System.err.println("Deadline Exceeded: Vote Request timed out for " + peerId);
+                    System.err.println("RequestVote Deadline Exceeded: Vote Request timed out for " + peerId);
                 }
             } catch (Exception e) {
                 System.out.println("Failed to request vote from " + peerId + "with reason given: " + e.getMessage());
@@ -337,10 +340,10 @@ public class RaftNode implements Serializable{
                                     
                                 } catch (StatusRuntimeException e) {
                                      if(e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED){
-                                        System.err.println("Deadline Exceeded: Heartbeat timed out for " + peerId);
+                                        System.err.println("InstallSnapshot Deadline Exceeded: Heartbeat timed out for " + peerId);
                                     }
                                 } catch (Exception e) {
-                                    System.out.println("Failed heartbeat to " + peerId + "with reason given: " + e.getMessage());
+                                    System.out.println("InstallSnapshot Failed heartbeat to " + peerId + "with reason given: " + e.getMessage());
                                 }
                                 //InstallSnapshotRequest installReq = InstallSnapshotRequest.newBuilder()
                                     
@@ -407,7 +410,7 @@ public class RaftNode implements Serializable{
                             }
                         } catch (StatusRuntimeException e){
                             if(e.getStatus().getCode() == Status.Code.DEADLINE_EXCEEDED){
-                                System.err.println("Deadline Exceeded: Heartbeat timed out for " + peerId);
+                                System.err.println("AppendEntries Deadline Exceeded: Heartbeat timed out for " + peerId);
                             }
                         } catch (Exception e) {
                             System.out.println("Failed heartbeat to " + peerId + "with reason given: " + e.getMessage());
@@ -503,6 +506,7 @@ public class RaftNode implements Serializable{
     public void processLogEntries(List<LogEntry> newEntries, int leaderCommit){
         boolean shouldSnapshot = false;
         synchronized(state.getLock()){
+        try (Timer.Context context = replicationTimer.time()){
             List<LogEntry> log = state.getLog();
             if(!newEntries.isEmpty()){
                 // Get first new entry index.
@@ -548,19 +552,20 @@ public class RaftNode implements Serializable{
 
                 }    
             }
-            //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
-            if(leaderCommit > state.getCommitIndex()){
-                int lastLogIndex = state.getLastIncludedIndex() + log.size();
-                state.setCommitIndex(Math.min(leaderCommit, lastLogIndex));
-                applyToStateMachine(); 
-                if (state.getLastApplied() - state.getLastIncludedIndex() >= SNAPSHOT_THRESHOLD) {
-                    shouldSnapshot = true;
+                //Updates the commitIndex of the node to match the min of the leader's commit index and the index of the last new entry.
+                if(leaderCommit > state.getCommitIndex()){
+                    int lastLogIndex = state.getLastIncludedIndex() + log.size();
+                    state.setCommitIndex(Math.min(leaderCommit, lastLogIndex));
+                    applyToStateMachine(); 
+                    if (state.getLastApplied() - state.getLastIncludedIndex() >= SNAPSHOT_THRESHOLD) {
+                        shouldSnapshot = true;
+                    }
                 }
-            }
 
-            //Create Snapshot for follower nodes
-            if (shouldSnapshot) {
-                maybeCreateSnapshot();
+                //Create Snapshot for follower nodes
+                if (shouldSnapshot) {
+                    maybeCreateSnapshot();
+                }
             }
         }
     }
@@ -779,7 +784,7 @@ public class RaftNode implements Serializable{
 
     private void maybeCreateSnapshot() {
         if (!LOG_COMPACTION_ENABLED) {
-            System.out.println("No log compaction");
+            // System.out.println("No log compaction");
             return;
         }
         synchronized (state.getLock()) {
@@ -841,6 +846,14 @@ public class RaftNode implements Serializable{
 
     public LogStorage getStoredLogs(){
         return this.logStore;
+    }
+
+  public void reRegisterNodeMetrics(){
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("raft.replication")){
+            replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
+        }
+
+        store.reRegisterStorageMetrics();
     }
 
 }
