@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
@@ -11,20 +13,24 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
 
+import com.raftDB.raft.config.MetricsManager;
+import com.codahale.metrics.Timer;
+
 public class KVStorage{
     
     RocksDB db;
     File dir;
     private final Map<String, String> memoryData = new HashMap<>();
-    
+    private static Timer getTimer = MetricsManager.metricRegistry.timer("db.rocksdb.get.latency");
+    private static Timer putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
 
     // RocksDB storage for key-value pairs for each node
-    // Storage is created in /tmp/rocksdb/[nodeID]
+    // Storage is created in /tmp/rocksdb/[nodeID].
     public KVStorage(String nodeId){
 
         RocksDB.loadLibrary();
         Options options = new Options();
-        options.setCreateIfMissing(true);
+        options.setCreateIfMissing(true);    
         dir = new File("/tmp/rocksdb", nodeId);
 
         try {
@@ -44,7 +50,7 @@ public class KVStorage{
     }
 
     public void put(String key, String value) {
-        try {
+        try (Timer.Context context = putTimer.time()){
             db.put(key.getBytes(), value.getBytes());
             memoryData.put(key, value);
         } catch (RocksDBException e) {
@@ -53,7 +59,7 @@ public class KVStorage{
     }
 
     public String get(String key)  {
-        try {
+        try (Timer.Context context = getTimer.time()){
             byte[] value = db.get(key.getBytes());
             return value != null ? new String(value) : null;
         } catch (RocksDBException e) {
@@ -102,4 +108,20 @@ public class KVStorage{
             System.out.println("???");
         }
     }
+
+    /*
+    * Method to rergister all storage metrics after the warm-up phase finishes.
+    */
+    public void reRegisterStorageMetrics(){
+
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.put.latency")){
+            putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
+        }
+
+        if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.get.latency")){
+            getTimer = MetricsManager.metricRegistry.timer("db.rocksdb.get.latency");
+        }        
+    }
+
+
 }

@@ -6,5 +6,5 @@
     {"nodeId": "node1", "host": "localhost", "port": 50051},
     {"nodeId": "node3", "host": "localhost", "port": 50053}
   ],
-  "logCompactionFlag": true
+  "logCompactionFlag": false
 }

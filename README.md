@@ -8,9 +8,30 @@ mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node2.js
 mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node3.json"
 ```
 
-To run all nodes at once, call `./run_raft_cluster.sh`.
+To run without log compaction:
+```
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node1_NoLC.json"
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node2_NoLC.json"
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node3_NoLC.json"
+```
 
-## Two RPCs are implemented:
+To run the latency and throughput test:
+```
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node1.json LATT"
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node2.json LATT"
+mvn exec:java -Dexec.mainClass="com.raftDB.raft.core.Main" -Dexec.args="node3.json LATT"
+```
+
+To run the latency and throughput test with no log compaction, replace the .json file with its _NoLC counterpart.
+
+## Batch Set up (Requires Mac/Linux)
+To run all nodes at once, call `./run_raft_cluster.sh`. Note this will require a Mac/Linux machine as the scripts calls Unix-based commands.
+To run all nodes with no log compaction, run `./run_raft_cluster_NoLC.sh`
+To run all nodes with the latency and throughput test run either `./run_raft_cluster_LATT.sh` or `./run_raft_cluster_LATT_NoLC.sh`, with log compaction and no log compaction, respectively.
+
+RocksDB storage is initalized in `/tmp/rocksdb/[nodeID]` by default.
+
+## Three RPCs are implemented:
 
 ### RequestVote
 
@@ -19,6 +40,10 @@ Used during elections to collect votes
 ### AppendEntries
 
 Used by leader to maintain authority and log replication to commit commands sent by client.
+
+### InstallSnapshot
+
+Called by Leader to send chucks of a snapshot to follower to ensure follower catch-up.
 
 ## Leader Election Flow
 
