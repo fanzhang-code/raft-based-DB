@@ -2,6 +2,8 @@ package com.raftDB.raft.model;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,6 +33,8 @@ import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+
+import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Timer;
 
 
@@ -849,14 +853,19 @@ public class RaftNode implements Serializable{
     }
 
     /*
-    * Method to rergister all metrics after the warm-up phase finishes.
+    * Method to register all metrics after the warm-up phase finishes.
     */
-  public void reRegisterNodeMetrics(){
+  public void registerNodeMetrics(){
         if(!MetricsManager.metricRegistry.getMetrics().containsKey("raft.replication")){
             replicationTimer = MetricsManager.metricRegistry.timer("raft.replication");
         }
 
-        store.reRegisterStorageMetrics();
+        MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
+
+        MetricsManager.metricRegistry.register("mem.heap.used", (Gauge<Long>) () -> memBean.getHeapMemoryUsage().getUsed());
+        MetricsManager.metricRegistry.register("mem.total.used", (Gauge<Long>) () -> memBean.getHeapMemoryUsage().getUsed() + memBean.getNonHeapMemoryUsage().getUsed());
+
+        store.registerStorageMetrics();
     }
 
 }

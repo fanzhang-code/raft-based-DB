@@ -3,7 +3,6 @@ package com.raftDB.raft.core;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.codahale.metrics.ConsoleReporter;
@@ -42,11 +41,6 @@ public class Main {
 
         if(toggleLATT){
             System.out.println("Setting up Latency and Throughput Test!");
-            final ConsoleReporter reporter = ConsoleReporter.forRegistry(MetricsManager.metricRegistry)
-                                                            .convertRatesTo(TimeUnit.SECONDS)
-                                                            .convertDurationsTo(TimeUnit.MILLISECONDS)
-                                                            .build();        
-            reporter.start(60, TimeUnit.SECONDS);
 
             node.start();
             Thread.sleep(5000);
@@ -56,7 +50,13 @@ public class Main {
 
             MetricsManager.metricRegistry.removeMatching(MetricFilter.ALL);
             System.out.println("Warm-up completed! Cleared Warmup Metrics!");
-            node.reRegisterNodeMetrics();
+            node.registerNodeMetrics();
+
+            final ConsoleReporter reporter = ConsoleReporter.forRegistry(MetricsManager.metricRegistry)
+                                                            .convertRatesTo(TimeUnit.SECONDS)
+                                                            .convertDurationsTo(TimeUnit.MILLISECONDS)
+                                                            .build();        
+            reporter.start(60, TimeUnit.SECONDS);
 
             System.out.println("Reregistered Metrics! Starting Latency and Throughput Test for 5 minutes.");
             latencyAndThroughtputTest(node, 300);

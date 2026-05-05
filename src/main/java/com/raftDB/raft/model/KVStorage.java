@@ -14,6 +14,7 @@ import org.rocksdb.RocksIterator;
 
 
 import com.raftDB.raft.config.MetricsManager;
+import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Timer;
 
 public class KVStorage{
@@ -110,9 +111,9 @@ public class KVStorage{
     }
 
     /*
-    * Method to rergister all storage metrics after the warm-up phase finishes.
+    * Method to register all storage metrics after the warm-up phase finishes.
     */
-    public void reRegisterStorageMetrics(){
+    public void registerStorageMetrics(){
 
         if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.put.latency")){
             putTimer = MetricsManager.metricRegistry.timer("db.rocksdb.put.latency");
@@ -120,7 +121,16 @@ public class KVStorage{
 
         if(!MetricsManager.metricRegistry.getMetrics().containsKey("db.rocksdb.get.latency")){
             getTimer = MetricsManager.metricRegistry.timer("db.rocksdb.get.latency");
-        }        
+        }
+        
+        MetricsManager.metricRegistry.register("storage.size", (Gauge<Long>) () -> {
+                try {
+                    return Files.walk(Paths.get(dir.getAbsolutePath()))
+                                .filter(p -> p.toFile().isFile())
+                                .mapToLong(p -> p.toFile().length())
+                                .sum();
+                } catch (IOException e) { return 0L; }
+            });
     }
 
 
