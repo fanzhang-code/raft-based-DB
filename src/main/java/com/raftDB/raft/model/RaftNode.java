@@ -134,6 +134,10 @@ public class RaftNode implements Serializable{
         }
     }
 
+    /*
+    * Method to keep track of election timer.
+    * If node do not receive a heartbeat from the leader in time. then start the election process.
+    */
     private void startElectionTimer() {
         new Thread(() -> {
             while (true) { //keep checking heartbeat to see if leader is still alive
@@ -185,6 +189,11 @@ public class RaftNode implements Serializable{
         }
     }
 
+    /*
+    * Method to start the election process.
+    * Node becomes candidate and votes for itself.
+    * Will send RequestVotes RPC to all neighboring nodes.
+    */
     public void startElection() {
         int currentTerm;
 
@@ -278,7 +287,13 @@ public class RaftNode implements Serializable{
         
         
     }
-    // added snapshot creation logic here, exclusive to leader. Followers create snapshots in processLogEntries
+
+    /*
+    * Starts the heartbeat loop. Leader will continously empty send AppendEntries RPC to followers.
+    * If leader receives client request, leader will append command to log and sends AppendEntries RPC to perform log replication
+    * If log inconsistencies are detected, decrement nextIndex and continously send AppendEntries RPC until logs match.
+    * 
+    */
     private void startHeartbeatLoop() {
         new Thread(() -> {
             while (true) {
@@ -500,8 +515,8 @@ public class RaftNode implements Serializable{
     /*
     * Processes and updates the node's log to match up with leader node's log.
     * Set commit index to the min of the leader's commit index and the index of the last new entry.
-    * TODO: Add logic to truncate local file if they are existing entries after the first new index.
-    * TODO: Add logic to persist new log entries to local storage.
+    * Removes all conflicting entries starting from the first new index 
+    * Persists new log entries to local state machine.
     * 
     * Moved snapshot creation from updateCommitIndex to here
     * @param - newEntries - List of all the new entries to append to the node's log
@@ -576,9 +591,7 @@ public class RaftNode implements Serializable{
 
     /*
     *  
-    * Method to simulate the log changes being applied to the state machine. 
-    * TODO: Will need to be modified to connect and apply log changes to an actual KV-store database.
-    * TODO: Connect the state machine to actual KV-store database.
+    * Method to simulate the log changes being applied to the state machine (RocksDB). 
     * 
     */
     public void applyToStateMachine(){
@@ -614,8 +627,6 @@ public class RaftNode implements Serializable{
                     continue;
                 }
 
-                //TODO: Remove these statements as these are just only meant for testing log replication. 
-                //TODO: Eventually, we will need to call the KV-store database to execute those commands.
                 String[] parts = command.split(" ");    
                 
                 // Call KV-store Database to execute command

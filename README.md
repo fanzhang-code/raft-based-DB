@@ -1,3 +1,12 @@
+## Contributions
+
+Fan Zhang implemented the foundation of the Raft algorithm, such as implementing leader elections, heartbeat mechanism, and also implemented snapshot creation to handle log compaction.
+
+Khai Yuan Liew implemented the log replication process, which includes the implementation of log conistency checks and implemented a logging and testing framework to evaluate performance metrics.
+
+Ryan Chang implemented the state machine, intergrating RocksDB as the Key-Value database and defined the state machine logic, and also developed snapshot recovery to ensure the followers can quickly catch up after a crash or network partition.
+
+
 ## Set up
 
 Maven clean and compile, then run three nodes:
@@ -35,7 +44,7 @@ RocksDB storage is initalized in `/tmp/rocksdb/[nodeID]` by default.
 
 ### RequestVote
 
-Used during elections to collect votes
+Used during elections to collect votes.
 
 ### AppendEntries
 
@@ -88,7 +97,7 @@ Otherwise, append any new entries to the follower's log.
 
 If an existing entry conflicts with the new entry (ie: same index, but different terms), delete all existing entries, starting from that index.
 
-Set the commitIndex to match up with the leader's commitIndex and apply the log changes to the state machine (Currently in main memory. TODO: Connect to KV-store database)
+Set the commitIndex to match up with the leader's commitIndex and apply the log changes to the state machine
 
 ### Term Updates
 

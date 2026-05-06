@@ -73,7 +73,6 @@ public class RaftServiceImpl extends RaftServiceGrpc.RaftServiceImplBase {
     }
 
     @Override
-    //TODO add KV-database and local storage connection.
     public void appendEntries(AppendEntriesRequest request,
                               StreamObserver<AppendEntriesResponse> responseObserver) {
 
