@@ -1,3 +1,7 @@
+## Github Link
+
+[Github Repository](https://github.com/fanzhang-code/raft-based-DB)
+
 ## Contributions
 
 Fan Zhang implemented the foundation of the Raft algorithm, such as implementing leader elections, heartbeat mechanism, and also implemented snapshot creation to handle log compaction.
